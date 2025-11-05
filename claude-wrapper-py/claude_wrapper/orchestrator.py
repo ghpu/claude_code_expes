@@ -2,7 +2,7 @@
 Orchestrator - Coordinates Manager and Worker Claude processes
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .manager import Manager
 from .worker import Worker
 from .terminal_ui import ui, Colors
@@ -17,7 +17,8 @@ class Orchestrator:
         manager_config: Dict[str, Any],
         max_iterations: int = 5,
         debug: bool = False,
-        interactive: bool = False
+        interactive: bool = False,
+        use_monitor: bool = False
     ):
         """
         Initialize Orchestrator
@@ -28,16 +29,19 @@ class Orchestrator:
             max_iterations: Maximum retry iterations
             debug: Enable debug output
             interactive: Enable interactive mode (pause for user input)
+            use_monitor: Enable advanced TUI monitor
         """
         self.working_dir = working_dir
         self.manager_config = manager_config
         self.max_iterations = max_iterations
         self.debug = debug
         self.interactive = interactive
+        self.use_monitor = use_monitor
 
         # Will be initialized in run()
         self.manager: Manager = None
         self.worker: Worker = None
+        self.monitor_app = None
 
     def run(self, task_description: str) -> Dict[str, Any]:
         """
@@ -49,18 +53,43 @@ class Orchestrator:
         Returns:
             Final result dict with status and details
         """
-        ui.print_banner("DUAL INSTANCE WORKFLOW STARTING")
-        ui.print_box("Task", [task_description], Colors.BRIGHT_CYAN)
+        # Initialize monitor if requested
+        if self.use_monitor:
+            try:
+                from .monitor import start_monitor
+                ui.orchestrator_log("Starting TUI monitor...")
+                self.monitor_app = start_monitor()
+                self.monitor_app.update_status("Initializing workflow...")
+
+                # Set interaction callback
+                def handle_interaction(message: str):
+                    response = self.manager.interactive_prompt(message)
+                    self.monitor_app.add_manager_message(f"[RESPONSE] {response}", "text")
+
+                self.monitor_app.set_interaction_callback(handle_interaction)
+            except ImportError:
+                ui.orchestrator_log("textual not installed - monitor mode disabled", "warning")
+                ui.orchestrator_log("Install with: pip install textual", "warning")
+                self.use_monitor = False
+                self.monitor_app = None
+
+        if not self.use_monitor:
+            ui.print_banner("DUAL INSTANCE WORKFLOW STARTING")
+            ui.print_box("Task", [task_description], Colors.BRIGHT_CYAN)
 
         try:
             # Initialize Manager
+            if self.monitor_app:
+                self.monitor_app.update_status("Initializing Manager...")
             ui.orchestrator_log("Initializing Manager instance...")
-            self.manager = Manager(self.working_dir, self.manager_config, debug=self.debug)
+            self.manager = Manager(self.working_dir, self.manager_config, debug=self.debug, monitor_app=self.monitor_app)
             self.manager.start()
 
             # Initialize Worker
+            if self.monitor_app:
+                self.monitor_app.update_status("Initializing Worker...")
             ui.orchestrator_log("Initializing Worker instance...")
-            self.worker = Worker(self.working_dir, debug=self.debug)
+            self.worker = Worker(self.working_dir, debug=self.debug, monitor_app=self.monitor_app)
             self.worker.start()
 
             ui.orchestrator_log("Both instances ready!", "success")
@@ -163,10 +192,16 @@ class Orchestrator:
 
             # Manager reviews
             ui.orchestrator_log("→ Manager: Requesting code review")
+            if self.monitor_app:
+                self.monitor_app.update_status(f"Reviewing (Iteration {iteration}/{self.max_iterations})...")
             review = self.manager.review_implementation(implementation)
 
             ui.orchestrator_log("← Manager: Review received")
             ui.print_review_result(review['approved'], review['score'], len(review['issues']))
+
+            # Send review to monitor
+            if self.monitor_app:
+                self.monitor_app.show_review_result(review)
 
             # Check if approved
             if review['approved']:
@@ -182,6 +217,11 @@ class Orchestrator:
             ui.orchestrator_log("Implementation rejected - providing feedback to Worker", "warning")
             if review['required_changes']:
                 ui.print_box("Required Changes", review['required_changes'][:5], Colors.YELLOW)
+
+            # Send feedback to monitor
+            if self.monitor_app:
+                feedback = self._format_feedback(review)
+                self.monitor_app.show_feedback_text(feedback)
 
         # Max iterations exceeded
         ui.orchestrator_log(f"Max iterations ({self.max_iterations}) exceeded", "error")

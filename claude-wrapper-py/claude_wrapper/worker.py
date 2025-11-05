@@ -11,17 +11,19 @@ from .terminal_ui import ui
 class Worker:
     """Worker instance for implementing tasks"""
 
-    def __init__(self, working_dir: str, debug: bool = False):
+    def __init__(self, working_dir: str, debug: bool = False, monitor_app=None):
         """
         Initialize Worker
 
         Args:
             working_dir: Working directory
             debug: Enable debug output
+            monitor_app: Optional MonitorApp instance for TUI display
         """
         self.working_dir = working_dir
         self.debug = debug
-        self.claude = ClaudeProcess(working_dir, role="WORKER", debug=debug)
+        self.monitor_app = monitor_app
+        self.claude = ClaudeProcess(working_dir, role="WORKER", debug=debug, monitor_app=monitor_app)
         self.tool_executor = ToolExecutor(working_dir)
         self.system_prompt = self._build_system_prompt()
         self.current_implementation = None

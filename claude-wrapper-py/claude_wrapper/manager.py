@@ -11,7 +11,7 @@ from .terminal_ui import ui
 class Manager:
     """Manager instance for planning and strict code review"""
 
-    def __init__(self, working_dir: str, config: Dict[str, Any], debug: bool = False):
+    def __init__(self, working_dir: str, config: Dict[str, Any], debug: bool = False, monitor_app=None):
         """
         Initialize Manager
 
@@ -19,11 +19,13 @@ class Manager:
             working_dir: Working directory
             config: Manager configuration (strictness, allow_mocks, require_tests, etc.)
             debug: Enable debug output
+            monitor_app: Optional MonitorApp instance for TUI display
         """
         self.working_dir = working_dir
         self.config = config
         self.debug = debug
-        self.claude = ClaudeProcess(working_dir, role="MANAGER", debug=debug)
+        self.monitor_app = monitor_app
+        self.claude = ClaudeProcess(working_dir, role="MANAGER", debug=debug, monitor_app=monitor_app)
         self.tool_executor = ToolExecutor(working_dir)
         self.system_prompt = self._build_system_prompt()
 

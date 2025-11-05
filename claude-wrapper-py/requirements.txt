@@ -1,5 +1,8 @@
 # Claude Wrapper - Python Requirements
-# No external dependencies needed - uses only Python standard library!
+# Core functionality uses only Python standard library!
+
+# Optional - for advanced TUI monitor with live conversation view:
+textual>=0.41.0
 
 # Optional for development:
 # pytest>=7.0.0

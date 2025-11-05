@@ -68,6 +68,12 @@ python -m claude_wrapper --strictness extreme "Build a REST API"
 # Interactive mode - pause after each subtask to interact with Manager
 python -m claude_wrapper --interactive "Build a complex feature"
 
+# TUI Monitor mode - see live conversations in beautiful interface
+python -m claude_wrapper --monitor "Build a complex feature"
+
+# Both interactive and monitor
+python -m claude_wrapper --interactive --monitor "Build a complex feature"
+
 # Allow mocks (not recommended)
 python -m claude_wrapper --allow-mocks "Prototype a feature"
 
@@ -102,6 +108,7 @@ python -m claude_wrapper \
 |--------|---------|-------------|
 | `--strictness` | `high` | Review strictness: `low`, `medium`, `high`, `extreme` |
 | `--interactive` | `false` | Enable interactive mode - pause after each subtask to interact with Manager |
+| `--monitor` | `false` | Enable advanced TUI monitor with live conversation view (requires `textual`) |
 | `--allow-mocks` | `false` | Allow mock implementations |
 | `--no-tests` | `false` | Don't require tests |
 | `--max-iterations` | `5` | Maximum review iterations per subtask |
@@ -257,6 +264,76 @@ python -m claude_wrapper --interactive "Build a feature"
   Ask another question? (y/n): n
 ```
 
+### 📊 Advanced TUI Monitor
+
+**NEW!** The `--monitor` flag launches an advanced Terminal User Interface with live conversation views:
+
+```bash
+# Install textual first (optional dependency)
+pip install textual
+
+# Run with monitor
+python -m claude_wrapper --monitor "Build a feature"
+```
+
+**Monitor Features:**
+
+- **Dual Conversation Panels** - See Manager and Worker conversations side-by-side in real-time
+- **Live Streaming** - Watch Claude's responses as they arrive, character by character
+- **Review Panel** - See detailed review results, scores, issues, and required changes
+- **Interactive Input** - Type messages to interact with the Manager directly from the TUI
+- **Keyboard Controls:**
+  - `F1` - Toggle Manager panel visibility
+  - `F2` - Toggle Worker panel visibility
+  - `F3` - Toggle Review panel visibility
+  - `F4` - Clear all conversation history
+  - `Ctrl+C` - Exit the application
+- **Auto-scrolling** - Panels automatically scroll to show latest messages
+- **Color-coded messages** - Manager (blue), Worker (magenta), status indicators
+- **Status bar** - Shows current workflow status and progress
+
+**Monitor Layout:**
+
+```
+┌──────────────────────── Claude Wrapper Monitor ─────────────────────┐
+│ Status: Reviewing (Iteration 2/5)...                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─ Manager (F1) ─────────┐  ┌─ Worker (F2) ──────────┐           │
+│  │ [10:30:15] ● M Starting│  │ [10:30:16] ● W Starting│           │
+│  │ [10:30:17] ● M Planning│  │ [10:30:18] ● W Impl... │           │
+│  │ [10:30:20] ✓ M Plan OK │  │ [10:30:25] ✓ W Done    │           │
+│  │ [10:30:30] ● M Review  │  │ [10:30:32] ● W Waiting │           │
+│  │                         │  │                         │           │
+│  └─────────────────────────┘  └─────────────────────────┘           │
+│                                                                      │
+├──────────────────────────────────────────────────────────────────────┤
+│  ┌─ Review & Feedback (F3) ──────────────────────────────────────┐  │
+│  │ ✗ REJECTED  │  Score: 65/100  │  Issues: 3                    │  │
+│  │                                                                 │  │
+│  │ Issues Found:                                                   │  │
+│  │   1. No tests found → INSTANT REJECT                           │  │
+│  │   2. Missing error handling for edge cases                     │  │
+│  │   3. Incomplete documentation                                  │  │
+│  │                                                                 │  │
+│  │ Required Changes:                                               │  │
+│  │   1. Add comprehensive unit tests                              │  │
+│  │   2. Implement proper error handling                           │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+├──────────────────────────────────────────────────────────────────────┤
+│ Ask Manager: [Type message and press Enter...]                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**When to use the Monitor:**
+
+- **Complex tasks** - See both instances working simultaneously
+- **Debugging** - Watch the full conversation flow in real-time
+- **Learning** - Understand how Manager and Worker collaborate
+- **Long-running tasks** - Monitor progress without cluttering the terminal
+- **Interactive development** - Ask questions while watching the workflow
+
 ## How It Works
 
 ### 1. Process Spawning
@@ -309,19 +386,20 @@ claude-wrapper-py/
 ├── claude_wrapper/
 │   ├── __init__.py           # Package initialization
 │   ├── __main__.py           # CLI entry point with argument parsing
-│   ├── claude_process.py     # Process spawning & management (280 lines)
+│   ├── claude_process.py     # Process spawning & management (290 lines)
 │   ├── tool_executor.py      # File operations (Read/Write/Edit/Bash/Glob/Grep) (210 lines)
-│   ├── manager.py            # Manager instance with strict review (350 lines)
-│   ├── worker.py             # Worker instance for implementation (270 lines)
-│   ├── orchestrator.py       # Coordination and workflow (240 lines)
-│   └── terminal_ui.py        # Beautiful terminal UI with colors (310 lines)
+│   ├── manager.py            # Manager instance with strict review (360 lines)
+│   ├── worker.py             # Worker instance for implementation (280 lines)
+│   ├── orchestrator.py       # Coordination and workflow (260 lines)
+│   ├── terminal_ui.py        # Beautiful terminal UI with colors (310 lines)
+│   └── monitor.py            # Advanced TUI monitor with live views (450 lines)
 ├── tests/                    # Tests
-├── requirements.txt          # Dependencies (none!)
+├── requirements.txt          # Dependencies (textual for monitor)
 ├── setup.py                  # Installation
 └── README.md                 # This file
 ```
 
-**Total: ~1,660 lines of production Python code**
+**Total: ~2,160 lines of production Python code**
 
 ## Advantages Over TypeScript Version
 
@@ -337,8 +415,9 @@ claude-wrapper-py/
 - **Python 3.8+**
 - **Claude Code CLI** installed and authenticated
 - **Claude Code Max subscription** (for unlimited usage)
+- **textual** (optional, only for `--monitor` flag): `pip install textual`
 
-That's it! No API key, no npm packages, no TypeScript compilation.
+Core functionality uses only Python standard library. The TUI monitor is optional but highly recommended for better visibility.
 
 ## Troubleshooting
 

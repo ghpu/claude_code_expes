@@ -77,6 +77,12 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
     )
 
     parser.add_argument(
+        "--monitor",
+        action="store_true",
+        help="Enable advanced TUI monitor with live conversation view (requires textual)"
+    )
+
+    parser.add_argument(
         "--claude-path",
         default="claude",
         help="Path to claude CLI executable (default: claude)"
@@ -104,6 +110,7 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
     print(f"  Require Tests: {not args.no_tests}")
     print(f"  Max Iterations: {args.max_iterations}")
     print(f"  Interactive Mode: {args.interactive}")
+    print(f"  TUI Monitor: {args.monitor}")
     print(f"  Debug: {args.debug}")
     print(f"  Claude Path: {args.claude_path}")
     print()
@@ -122,7 +129,8 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
             manager_config=manager_config,
             max_iterations=args.max_iterations,
             debug=args.debug,
-            interactive=args.interactive
+            interactive=args.interactive,
+            use_monitor=args.monitor
         )
 
         result = orchestrator.run(args.task)

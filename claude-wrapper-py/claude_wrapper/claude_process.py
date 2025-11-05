@@ -25,7 +25,7 @@ class ClaudeResponse:
 class ClaudeProcess:
     """Manages a Claude Code CLI process with stdin/stdout/stderr handling"""
 
-    def __init__(self, working_dir: str, role: str = "assistant", debug: bool = False, show_streaming: bool = True):
+    def __init__(self, working_dir: str, role: str = "assistant", debug: bool = False, show_streaming: bool = True, monitor_app=None):
         """
         Initialize Claude process manager
 
@@ -34,11 +34,13 @@ class ClaudeProcess:
             role: Role identifier (manager/worker) for logging
             debug: Enable debug output
             show_streaming: Show real-time streaming output
+            monitor_app: Optional MonitorApp instance for TUI display
         """
         self.working_dir = working_dir
         self.role = role
         self.debug = debug
         self.show_streaming = show_streaming
+        self.monitor_app = monitor_app
         self.process: Optional[subprocess.Popen] = None
         self.stdout_queue: queue.Queue = queue.Queue()
         self.stderr_queue: queue.Queue = queue.Queue()
@@ -122,6 +124,13 @@ class ClaudeProcess:
                 # Show real-time streaming if enabled
                 if self.show_streaming and stream_name == 'stdout':
                     ui.print_streaming_output(self.role.lower(), line)
+
+                # Send to monitor if available
+                if self.monitor_app and stream_name == 'stdout':
+                    if self.role.lower() == 'manager':
+                        self.monitor_app.add_manager_message(line.rstrip())
+                    else:
+                        self.monitor_app.add_worker_message(line.rstrip())
 
                 if self.debug and stream_name == 'stderr':
                     if self.role.lower() == 'manager':
