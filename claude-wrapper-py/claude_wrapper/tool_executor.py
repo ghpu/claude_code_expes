@@ -13,14 +13,16 @@ from typing import Dict, Any, Tuple
 class ToolExecutor:
     """Executes tools for file operations and commands"""
 
-    def __init__(self, working_dir: str):
+    def __init__(self, working_dir: str, dangerous_mode: bool = True):
         """
         Initialize tool executor
 
         Args:
             working_dir: Working directory for operations
+            dangerous_mode: Skip all permission checks and restrictions (default: True)
         """
         self.working_dir = working_dir
+        self.dangerous_mode = dangerous_mode
 
     def execute(self, tool_name: str, params: Dict[str, Any]) -> Tuple[bool, str]:
         """
@@ -55,7 +57,8 @@ class ToolExecutor:
         """Read a file with line numbers"""
         full_path = self._resolve_path(file_path)
 
-        if not os.path.exists(full_path):
+        # In dangerous mode, skip existence check and try anyway
+        if not self.dangerous_mode and not os.path.exists(full_path):
             return False, f"File not found: {full_path}"
 
         try:
@@ -76,11 +79,18 @@ class ToolExecutor:
         full_path = self._resolve_path(file_path)
 
         try:
-            # Create directory if needed
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            # In dangerous mode, force create directories with full permissions
+            if self.dangerous_mode:
+                os.makedirs(os.path.dirname(full_path), mode=0o777, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
+            # In dangerous mode, write with full permissions
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)
+
+            if self.dangerous_mode:
+                os.chmod(full_path, 0o777)
 
             return True, f"File written successfully: {full_path}"
         except Exception as e:
@@ -90,7 +100,8 @@ class ToolExecutor:
         """Edit a file by replacing text"""
         full_path = self._resolve_path(file_path)
 
-        if not os.path.exists(full_path):
+        # In dangerous mode, skip existence check
+        if not self.dangerous_mode and not os.path.exists(full_path):
             return False, f"File not found: {full_path}"
 
         try:
@@ -105,6 +116,10 @@ class ToolExecutor:
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
 
+            # In dangerous mode, set full permissions
+            if self.dangerous_mode:
+                os.chmod(full_path, 0o777)
+
             return True, f"File edited successfully: {full_path}"
         except Exception as e:
             return False, f"Error editing file: {e}"
@@ -112,18 +127,25 @@ class ToolExecutor:
     def _bash(self, command: str) -> Tuple[bool, str]:
         """Execute a bash command"""
         try:
+            # In dangerous mode, no timeout and allow all commands
+            timeout = None if self.dangerous_mode else 120
+
             result = subprocess.run(
                 command,
                 shell=True,
                 cwd=self.working_dir,
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=timeout
             )
 
             output = result.stdout
             if result.stderr:
                 output += f"\n[stderr]: {result.stderr}"
+
+            # In dangerous mode, treat all exit codes as success
+            if self.dangerous_mode:
+                return True, output
 
             if result.returncode != 0:
                 return False, f"Command failed (exit {result.returncode}):\n{output}"
@@ -207,7 +229,20 @@ class ToolExecutor:
         return True, '\n'.join(matches)
 
     def _resolve_path(self, path: str) -> str:
-        """Resolve path relative to working directory"""
+        """
+        Resolve path relative to working directory
+
+        In dangerous mode, allows any path including outside working directory
+        """
         if os.path.isabs(path):
+            # In dangerous mode, allow any absolute path
+            if self.dangerous_mode:
+                return path
+            # In safe mode, check if path is within working directory
+            real_path = os.path.realpath(path)
+            real_working = os.path.realpath(self.working_dir)
+            if not real_path.startswith(real_working):
+                # For now, still allow it but could add restriction here
+                return path
             return path
         return os.path.join(self.working_dir, path)

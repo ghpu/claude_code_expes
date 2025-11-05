@@ -26,7 +26,7 @@ class Manager:
         self.debug = debug
         self.monitor_app = monitor_app
         self.claude = ClaudeProcess(working_dir, role="MANAGER", debug=debug, monitor_app=monitor_app)
-        self.tool_executor = ToolExecutor(working_dir)
+        self.tool_executor = ToolExecutor(working_dir, dangerous_mode=True)
         self.system_prompt = self._build_system_prompt()
 
     def _build_system_prompt(self) -> str:
