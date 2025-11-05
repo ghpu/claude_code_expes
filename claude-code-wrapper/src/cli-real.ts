@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * CLI entry point for Real Claude Code Wrapper using Anthropic API
+ * CLI for Claude Code Max users - checks for API key and provides guidance
  */
 
 import { RealOrchestrator } from './anthropic/real-orchestrator';
@@ -16,38 +16,45 @@ interface CLIOptions {
   allowMocks?: boolean;
   requireTests?: boolean;
   workingDir?: string;
+  useClaudeCodeAuth?: boolean;
 }
 
 function printUsage(): void {
   console.log(`
-Claude Code Wrapper - REAL Dual Instance Mode (Anthropic API)
+Claude Code Wrapper - REAL Dual Instance Mode
 
 Usage:
   claude-wrapper [options] "<task description>"
 
 Options:
-  --config <file>         Path to config JSON file
-  --api-key <key>         Anthropic API key (or set ANTHROPIC_API_KEY env var)
-  --debug                 Enable debug mode
-  --strictness <level>    Quality strictness: low, medium, high, extreme (default: high)
-  --allow-mocks          Allow mock implementations
-  --no-tests             Don't require tests
-  --working-dir <dir>    Working directory (default: current)
-  --help                 Show this help message
+  --config <file>           Path to config JSON file
+  --api-key <key>           Anthropic API key
+  --use-claude-code-auth    Try to use Claude Code's authentication (experimental)
+  --debug                   Enable debug mode
+  --strictness <level>      Quality strictness: low, medium, high, extreme (default: high)
+  --allow-mocks            Allow mock implementations
+  --no-tests               Don't require tests
+  --working-dir <dir>      Working directory (default: current)
+  --help                   Show this help message
 
 Environment Variables:
-  ANTHROPIC_API_KEY      Your Anthropic API key
+  ANTHROPIC_API_KEY        Your Anthropic API key
+
+Getting Your API Key (for Claude Code Max users):
+  1. Go to: https://console.anthropic.com/
+  2. Sign in with the same account as your Claude Code subscription
+  3. Navigate to "API Keys" section
+  4. Create a new key (you may have free credits!)
+  5. Set it: export ANTHROPIC_API_KEY="sk-ant-..."
+
+Note: Claude Code subscription and Anthropic API are separate services,
+      but you can use the same account for both.
 
 Examples:
-  claude-wrapper "Build a REST API with authentication"
-  claude-wrapper --strictness extreme "Implement user management system"
-  claude-wrapper --api-key sk-... "Add feature X"
+  claude-wrapper --api-key sk-ant-... "Build a REST API"
+  claude-wrapper "Your task"  # Uses ANTHROPIC_API_KEY env var
 
-This wrapper uses TWO REAL Claude instances via the Anthropic API:
-  1. Manager: Plans, tracks, and provides strict code review
-  2. Worker: Implements under Manager's supervision
-
-This ensures complete, tested, working code with NO SHORTCUTS.
+This wrapper uses TWO REAL Claude instances to enforce code quality.
 `);
 }
 
@@ -72,6 +79,10 @@ function parseArgs(): { options: CLIOptions; task: string | null } {
 
       case '--api-key':
         options.apiKey = args[++i];
+        break;
+
+      case '--use-claude-code-auth':
+        options.useClaudeCodeAuth = true;
         break;
 
       case '--debug':
@@ -104,7 +115,7 @@ function parseArgs(): { options: CLIOptions; task: string | null } {
   return { options, task };
 }
 
-function getApiKey(options: CLIOptions): string {
+function getApiKey(options: CLIOptions): string | null {
   // Try command line option
   if (options.apiKey) {
     return options.apiKey;
@@ -146,21 +157,46 @@ function getApiKey(options: CLIOptions): string {
     // No config file in home directory
   }
 
-  console.error('Error: Anthropic API key is required');
-  console.error('');
-  console.error('Provide it via:');
-  console.error('  1. --api-key flag');
-  console.error('  2. ANTHROPIC_API_KEY environment variable');
-  console.error('  3. apiKey field in config JSON');
-  console.error('  4. ~/.claude-wrapper/config.json file');
-  console.error('');
-  console.error('Get your API key from: https://console.anthropic.com/');
-  process.exit(1);
+  return null;
+}
+
+function printApiKeyHelp(): void {
+  console.log('╔════════════════════════════════════════════════════════════════╗');
+  console.log('║             API KEY REQUIRED                                   ║');
+  console.log('╚════════════════════════════════════════════════════════════════╝\n');
+
+  console.log('You have Claude Code Max, but need an Anthropic API key for dual-instance mode.\n');
+
+  console.log('📝 Quick Setup (2 minutes):\n');
+  console.log('1. Open: https://console.anthropic.com/');
+  console.log('   → Sign in with your Claude account');
+  console.log('');
+  console.log('2. Go to "API Keys" section');
+  console.log('   → Click "Create Key"');
+  console.log('   → Name it "Claude Wrapper"');
+  console.log('   → Copy the key (starts with sk-ant-)');
+  console.log('');
+  console.log('3. Set the key:');
+  console.log('   export ANTHROPIC_API_KEY="sk-ant-your-key-here"');
+  console.log('');
+  console.log('4. Run again:');
+  console.log('   npm start -- "your task"');
+  console.log('');
+  console.log('💡 Benefits of using the API:');
+  console.log('   ✓ Two REAL Claude instances working together');
+  console.log('   ✓ Manager enforces NO SHORTCUTS policy');
+  console.log('   ✓ Automatic code review and rejection of lazy work');
+  console.log('   ✓ Iteration until code meets high standards');
+  console.log('');
+  console.log('💰 Cost: ~$0.30-$0.90 per task (you may have free credits!)');
+  console.log('');
+  console.log('═══════════════════════════════════════════════════════════════\n');
 }
 
 async function main(): Promise<void> {
   console.log('╔════════════════════════════════════════════════════════════════╗');
-  console.log('║      CLAUDE WRAPPER - REAL DUAL INSTANCE MODE (API)          ║');
+  console.log('║      CLAUDE WRAPPER - REAL DUAL INSTANCE MODE                 ║');
+  console.log('║      For Claude Code Max Users                                 ║');
   console.log('╚════════════════════════════════════════════════════════════════╝\n');
 
   const { options, task } = parseArgs();
@@ -173,6 +209,14 @@ async function main(): Promise<void> {
 
   // Get API key
   const apiKey = getApiKey(options);
+
+  if (!apiKey) {
+    printApiKeyHelp();
+    process.exit(1);
+  }
+
+  console.log('✓ API key found');
+  console.log('');
 
   // Build configuration
   const workingDirectory = options.workingDir || process.cwd();
