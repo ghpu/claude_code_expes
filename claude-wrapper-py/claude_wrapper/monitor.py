@@ -395,10 +395,49 @@ class MonitorApp(App):
         """Set callback function for user interactions"""
         self.interaction_callback = callback
 
+    def run_with_orchestrator(self, orchestrator_func, *args, **kwargs):
+        """
+        Run the monitor TUI with orchestrator in background thread
+
+        Args:
+            orchestrator_func: Function to run in background (orchestrator.run)
+            *args, **kwargs: Arguments to pass to the function
+        """
+        self.orchestrator_result = None
+        self.orchestrator_error = None
+
+        def run_orchestrator():
+            try:
+                self.orchestrator_result = orchestrator_func(*args, **kwargs)
+                self.update_status("Workflow complete!")
+            except Exception as e:
+                self.orchestrator_error = e
+                self.update_status(f"Error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                # Keep TUI running to show results
+                pass
+
+        # Start orchestrator in background thread
+        orch_thread = threading.Thread(target=run_orchestrator, daemon=True)
+        orch_thread.start()
+
+        # Run TUI in main thread (blocks until user exits)
+        try:
+            self.run()
+        finally:
+            # Wait a moment for orchestrator thread to finish
+            orch_thread.join(timeout=2)
+
+        # Return result or raise error
+        if self.orchestrator_error:
+            raise self.orchestrator_error
+        return self.orchestrator_result
+
 
 # Singleton instance
 _monitor_app: Optional[MonitorApp] = None
-_monitor_thread: Optional[threading.Thread] = None
 
 
 def get_monitor() -> Optional[MonitorApp]:
@@ -406,35 +445,26 @@ def get_monitor() -> Optional[MonitorApp]:
     return _monitor_app
 
 
-def start_monitor() -> MonitorApp:
-    """Start the TUI monitor in a separate thread"""
-    global _monitor_app, _monitor_thread
+def create_monitor() -> MonitorApp:
+    """
+    Create the TUI monitor instance (does not start it yet)
+
+    The monitor must be run in the main thread.
+    Call monitor.run_with_orchestrator(orchestrator, task) to start.
+    """
+    global _monitor_app
 
     if _monitor_app is not None:
         return _monitor_app
 
     _monitor_app = MonitorApp()
-
-    def run_app():
-        _monitor_app.run()
-
-    _monitor_thread = threading.Thread(target=run_app, daemon=True)
-    _monitor_thread.start()
-
-    # Give it a moment to start
-    import time
-    time.sleep(0.5)
-
     return _monitor_app
 
 
 def stop_monitor():
     """Stop the TUI monitor"""
-    global _monitor_app, _monitor_thread
+    global _monitor_app
 
     if _monitor_app:
         _monitor_app.exit()
         _monitor_app = None
-
-    if _monitor_thread:
-        _monitor_thread = None

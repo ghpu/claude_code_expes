@@ -18,7 +18,7 @@ class Orchestrator:
         max_iterations: int = 5,
         debug: bool = False,
         interactive: bool = False,
-        use_monitor: bool = False
+        monitor_app = None
     ):
         """
         Initialize Orchestrator
@@ -29,19 +29,19 @@ class Orchestrator:
             max_iterations: Maximum retry iterations
             debug: Enable debug output
             interactive: Enable interactive mode (pause for user input)
-            use_monitor: Enable advanced TUI monitor
+            monitor_app: Optional MonitorApp instance for TUI display
         """
         self.working_dir = working_dir
         self.manager_config = manager_config
         self.max_iterations = max_iterations
         self.debug = debug
         self.interactive = interactive
-        self.use_monitor = use_monitor
+        self.monitor_app = monitor_app
+        self.use_monitor = monitor_app is not None
 
         # Will be initialized in run()
         self.manager: Manager = None
         self.worker: Worker = None
-        self.monitor_app = None
 
     def run(self, task_description: str) -> Dict[str, Any]:
         """
@@ -53,25 +53,16 @@ class Orchestrator:
         Returns:
             Final result dict with status and details
         """
-        # Initialize monitor if requested
-        if self.use_monitor:
-            try:
-                from .monitor import start_monitor
-                ui.orchestrator_log("Starting TUI monitor...")
-                self.monitor_app = start_monitor()
-                self.monitor_app.update_status("Initializing workflow...")
+        # Set up monitor if provided
+        if self.monitor_app:
+            self.monitor_app.update_status("Initializing workflow...")
 
-                # Set interaction callback
-                def handle_interaction(message: str):
-                    response = self.manager.interactive_prompt(message)
-                    self.monitor_app.add_manager_message(f"[RESPONSE] {response}", "text")
+            # Set interaction callback
+            def handle_interaction(message: str):
+                response = self.manager.interactive_prompt(message)
+                self.monitor_app.add_manager_message(f"[RESPONSE] {response}", "text")
 
-                self.monitor_app.set_interaction_callback(handle_interaction)
-            except ImportError:
-                ui.orchestrator_log("textual not installed - monitor mode disabled", "warning")
-                ui.orchestrator_log("Install with: pip install textual", "warning")
-                self.use_monitor = False
-                self.monitor_app = None
+            self.monitor_app.set_interaction_callback(handle_interaction)
 
         if not self.use_monitor:
             ui.print_banner("DUAL INSTANCE WORKFLOW STARTING")

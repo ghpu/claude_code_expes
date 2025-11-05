@@ -123,17 +123,43 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
     }
 
     try:
-        # Create and run orchestrator
-        orchestrator = Orchestrator(
-            working_dir=args.working_dir,
-            manager_config=manager_config,
-            max_iterations=args.max_iterations,
-            debug=args.debug,
-            interactive=args.interactive,
-            use_monitor=args.monitor
-        )
+        # Handle monitor mode
+        if args.monitor:
+            try:
+                from claude_wrapper.monitor import create_monitor
 
-        result = orchestrator.run(args.task)
+                # Create monitor instance
+                monitor = create_monitor()
+
+                # Create orchestrator with monitor
+                orchestrator = Orchestrator(
+                    working_dir=args.working_dir,
+                    manager_config=manager_config,
+                    max_iterations=args.max_iterations,
+                    debug=args.debug,
+                    interactive=args.interactive,
+                    monitor_app=monitor
+                )
+
+                # Run with monitor (blocks in main thread)
+                result = monitor.run_with_orchestrator(orchestrator.run, args.task)
+
+            except ImportError as e:
+                print(f"\n✗ textual not installed - monitor mode requires it")
+                print(f"  Install with: pip install textual")
+                sys.exit(1)
+        else:
+            # Normal mode without monitor
+            orchestrator = Orchestrator(
+                working_dir=args.working_dir,
+                manager_config=manager_config,
+                max_iterations=args.max_iterations,
+                debug=args.debug,
+                interactive=args.interactive,
+                monitor_app=None
+            )
+
+            result = orchestrator.run(args.task)
 
         # Exit with appropriate code
         if result['status'] == 'success':
