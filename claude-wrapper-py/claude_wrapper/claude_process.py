@@ -188,7 +188,7 @@ class ClaudeProcess:
                 env=env,
                 timeout=120,
                 encoding='utf-8',
-                echo=False  # Don't echo input back
+                echo=True  # Allow echo - Claude CLI will echo typed input
             )
 
             # Enable logging if debug
@@ -262,7 +262,7 @@ class ClaudeProcess:
         else:
             ui.worker_log(f"Sending prompt ({len(prompt)} chars)")
 
-        # Log to debug only (not conversation window)
+        # Log to debug only - Claude CLI will echo the prompt naturally
         if self.monitor_app:
             prompt_preview = prompt[:200] + "..." if len(prompt) > 200 else prompt
             self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars): {prompt_preview}")
@@ -272,10 +272,14 @@ class ClaudeProcess:
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "info", "Typing prompt character by character...")
 
-            for char in prompt:
+            for i, char in enumerate(prompt):
                 self.child.send(char)
                 # Small delay to simulate human typing (prevents input buffer issues)
                 time.sleep(0.01)
+
+                # Show typing progress every 100 characters
+                if self.monitor_app and (i + 1) % 100 == 0:
+                    self.monitor_app.add_debug("PEXPECT", "debug", f"Typed {i + 1}/{len(prompt)} characters...")
 
             # Send Enter key to confirm/submit
             self.child.send('\r')  # Carriage return (Enter key)
