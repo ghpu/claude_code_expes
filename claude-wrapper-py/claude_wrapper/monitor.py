@@ -26,6 +26,15 @@ class ConversationPanel(ScrollableContainer):
         self.messages = []
         self.border_title = title
 
+    def is_at_bottom(self) -> bool:
+        """Check if user is scrolled to the bottom (within 2 lines of tolerance)"""
+        if not hasattr(self, 'max_scroll_y') or not hasattr(self, 'scroll_offset'):
+            return True  # If we can't check, assume at bottom
+
+        # Check if we're within 2 lines of the bottom
+        tolerance = 2
+        return (self.max_scroll_y - self.scroll_offset.y) <= tolerance
+
     def add_message(self, content: str, message_type: str = "text"):
         """Add a message to the conversation"""
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -63,12 +72,16 @@ class ConversationPanel(ScrollableContainer):
 
         self.messages.append(msg_text)
 
+        # Check if user is at bottom before adding message
+        was_at_bottom = self.is_at_bottom()
+
         # Add to display
         label = Label(msg_text)
         self.mount(label)
 
-        # Auto-scroll to bottom
-        self.scroll_end(animate=False)
+        # Only auto-scroll if user was already at bottom
+        if was_at_bottom:
+            self.scroll_end(animate=False)
 
     def clear_messages(self):
         """Clear all messages"""
@@ -153,6 +166,15 @@ class DebugPanel(ScrollableContainer):
         self.border_title = "Debug Log (F5)"
         self.messages = []
 
+    def is_at_bottom(self) -> bool:
+        """Check if user is scrolled to the bottom (within 2 lines of tolerance)"""
+        if not hasattr(self, 'max_scroll_y') or not hasattr(self, 'scroll_offset'):
+            return True  # If we can't check, assume at bottom
+
+        # Check if we're within 2 lines of the bottom
+        tolerance = 2
+        return (self.max_scroll_y - self.scroll_offset.y) <= tolerance
+
     def add_debug_message(self, source: str, level: str, message: str):
         """Add a debug message to the panel"""
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
@@ -183,12 +205,16 @@ class DebugPanel(ScrollableContainer):
 
         self.messages.append(msg_text)
 
+        # Check if user is at bottom before adding message
+        was_at_bottom = self.is_at_bottom()
+
         # Add to display
         label = Label(msg_text)
         self.mount(label)
 
-        # Auto-scroll to bottom
-        self.scroll_end(animate=False)
+        # Only auto-scroll if user was already at bottom
+        if was_at_bottom:
+            self.scroll_end(animate=False)
 
     def clear_messages(self):
         """Clear all debug messages"""
