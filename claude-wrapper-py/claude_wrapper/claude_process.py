@@ -10,6 +10,7 @@ import time
 import os
 from typing import Optional, Callable
 from dataclasses import dataclass
+from .terminal_ui import ui
 
 
 @dataclass
@@ -24,7 +25,7 @@ class ClaudeResponse:
 class ClaudeProcess:
     """Manages a Claude Code CLI process with stdin/stdout/stderr handling"""
 
-    def __init__(self, working_dir: str, role: str = "assistant", debug: bool = False):
+    def __init__(self, working_dir: str, role: str = "assistant", debug: bool = False, show_streaming: bool = True):
         """
         Initialize Claude process manager
 
@@ -32,10 +33,12 @@ class ClaudeProcess:
             working_dir: Working directory for the Claude process
             role: Role identifier (manager/worker) for logging
             debug: Enable debug output
+            show_streaming: Show real-time streaming output
         """
         self.working_dir = working_dir
         self.role = role
         self.debug = debug
+        self.show_streaming = show_streaming
         self.process: Optional[subprocess.Popen] = None
         self.stdout_queue: queue.Queue = queue.Queue()
         self.stderr_queue: queue.Queue = queue.Queue()
@@ -51,9 +54,12 @@ class ClaudeProcess:
 
         claude_path = os.getenv('CLAUDE_PATH', '/opt/node22/bin/claude')
 
-        if self.debug:
-            print(f"[{self.role}] Starting Claude process at {claude_path}")
-            print(f"[{self.role}] Working directory: {self.working_dir}")
+        if self.role.lower() == 'manager':
+            ui.manager_log(f"Starting Claude CLI process at {claude_path}")
+            ui.manager_log(f"Working directory: {self.working_dir}")
+        else:
+            ui.worker_log(f"Starting Claude CLI process at {claude_path}")
+            ui.worker_log(f"Working directory: {self.working_dir}")
 
         # Prepare environment - pass through Claude Code authentication
         env = os.environ.copy()
@@ -94,22 +100,40 @@ class ClaudeProcess:
             # Consume initial output
             self._consume_output(timeout=3)
 
-            if self.debug:
-                print(f"[{self.role}] Process started successfully (PID: {self.process.pid})")
+            if self.role.lower() == 'manager':
+                ui.manager_log(f"Process started successfully (PID: {self.process.pid})", "success")
+            else:
+                ui.worker_log(f"Process started successfully (PID: {self.process.pid})", "success")
 
         except Exception as e:
-            raise RuntimeError(f"[{self.role}] Failed to start Claude process: {e}")
+            error_msg = f"Failed to start Claude process: {e}"
+            if self.role.lower() == 'manager':
+                ui.manager_log(error_msg, "error")
+            else:
+                ui.worker_log(error_msg, "error")
+            raise RuntimeError(f"[{self.role}] {error_msg}")
 
     def _read_stream(self, stream, output_queue: queue.Queue, stream_name: str) -> None:
         """Read from stream and put into queue"""
         try:
             for line in stream:
                 output_queue.put(line)
+
+                # Show real-time streaming if enabled
+                if self.show_streaming and stream_name == 'stdout':
+                    ui.print_streaming_output(self.role.lower(), line)
+
                 if self.debug and stream_name == 'stderr':
-                    print(f"[{self.role}] stderr: {line.rstrip()}")
+                    if self.role.lower() == 'manager':
+                        ui.manager_log(f"stderr: {line.rstrip()}", "warning")
+                    else:
+                        ui.worker_log(f"stderr: {line.rstrip()}", "warning")
         except Exception as e:
             if self.debug:
-                print(f"[{self.role}] Stream {stream_name} error: {e}")
+                if self.role.lower() == 'manager':
+                    ui.manager_log(f"Stream {stream_name} error: {e}", "error")
+                else:
+                    ui.worker_log(f"Stream {stream_name} error: {e}", "error")
 
     def _consume_output(self, timeout: float = 30) -> str:
         """Consume output from queue until timeout"""
@@ -125,8 +149,8 @@ class ClaudeProcess:
                 output_lines.append(line)
                 last_output_time = time.time()
 
-                if self.debug:
-                    print(f"[{self.role}] > {line.rstrip()}")
+                # Already shown via streaming in _read_stream
+                pass
 
             except queue.Empty:
                 # Check if we should stop
@@ -159,9 +183,10 @@ class ClaudeProcess:
         if not self.is_running:
             raise RuntimeError(f"[{self.role}] Process not running")
 
-        if self.debug:
-            print(f"[{self.role}] Sending prompt ({len(prompt)} chars)")
-            print(f"[{self.role}] Prompt preview: {prompt[:200]}...")
+        if self.role.lower() == 'manager':
+            ui.manager_log(f"Sending prompt ({len(prompt)} chars)")
+        else:
+            ui.worker_log(f"Sending prompt ({len(prompt)} chars)")
 
         # Send prompt via stdin
         try:

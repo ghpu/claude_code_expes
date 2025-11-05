@@ -65,6 +65,9 @@ python -m claude_wrapper "Write a calculator function with tests"
 # Extreme strictness
 python -m claude_wrapper --strictness extreme "Build a REST API"
 
+# Interactive mode - pause after each subtask to interact with Manager
+python -m claude_wrapper --interactive "Build a complex feature"
+
 # Allow mocks (not recommended)
 python -m claude_wrapper --allow-mocks "Prototype a feature"
 
@@ -79,6 +82,9 @@ python -m claude_wrapper --max-iterations 10 "Challenging task"
 
 # Custom working directory
 python -m claude_wrapper --working-dir /path/to/project "Add feature"
+
+# Custom Claude path
+python -m claude_wrapper --claude-path /usr/local/bin/claude "Task"
 ```
 
 ### Your Complex Task
@@ -95,12 +101,13 @@ python -m claude_wrapper \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--strictness` | `high` | Review strictness: `low`, `medium`, `high`, `extreme` |
+| `--interactive` | `false` | Enable interactive mode - pause after each subtask to interact with Manager |
 | `--allow-mocks` | `false` | Allow mock implementations |
 | `--no-tests` | `false` | Don't require tests |
 | `--max-iterations` | `5` | Maximum review iterations per subtask |
 | `--working-dir` | `pwd` | Working directory |
 | `--debug` | `false` | Enable debug output |
-| `--claude-path` | `/opt/node22/bin/claude` | Path to claude CLI |
+| `--claude-path` | `claude` | Path to claude CLI |
 
 ## Quality Standards Enforced
 
@@ -198,6 +205,58 @@ Subtasks completed: 3/3
 ✓ All subtasks completed successfully!
 ```
 
+## New Features
+
+### 🎨 Beautiful Terminal UI
+
+The wrapper now includes a rich terminal UI with:
+
+- **Color-coded output** - Manager (blue), Worker (magenta), Orchestrator (cyan)
+- **Real-time streaming** - Watch Claude's responses as they arrive
+- **Progress bars** - Visual iteration progress
+- **Formatted boxes** - Clean display of reviews, feedback, and summaries
+- **Status indicators** - ✓ success, ✗ error, ⚠ warning
+- **Timestamps** - Track when events occur
+
+All output is beautifully formatted with ANSI colors and structured layouts for easy monitoring.
+
+### 🎯 Interactive Mode
+
+With `--interactive`, you can pause the workflow after each subtask and interact directly with the Manager Claude instance:
+
+```bash
+python -m claude_wrapper --interactive "Build a feature"
+```
+
+**What you can do in interactive mode:**
+
+- Ask the Manager questions about the implementation
+- Request clarifications on the plan
+- Discuss architecture decisions
+- Get explanations of review decisions
+- Provide additional requirements
+- Type `continue` to proceed with the next subtask
+- Type `quit` to exit
+
+**Example interaction:**
+
+```
+[After subtask 1 completes]
+
+  Enter message for Manager (or 'continue' to proceed): Why did you choose that approach?
+
+[MANAGER] User interaction: Why did you choose that approach?...
+[MANAGER] Response ready
+
+┌─ Manager Response ──────────────────────────────────────────────┐
+│ I chose this approach because it provides better separation     │
+│ of concerns and makes testing easier. The implementation        │
+│ follows SOLID principles and allows for future extensibility.   │
+└──────────────────────────────────────────────────────────────────┘
+
+  Ask another question? (y/n): n
+```
+
 ## How It Works
 
 ### 1. Process Spawning
@@ -249,19 +308,20 @@ self.process = subprocess.Popen(
 claude-wrapper-py/
 ├── claude_wrapper/
 │   ├── __init__.py           # Package initialization
-│   ├── __main__.py           # CLI entry point (main)
-│   ├── claude_process.py     # Process spawning & management (230 lines)
-│   ├── tool_executor.py      # File operations (210 lines)
-│   ├── manager.py            # Manager instance (350 lines)
-│   ├── worker.py             # Worker instance (260 lines)
-│   └── orchestrator.py       # Coordination (230 lines)
+│   ├── __main__.py           # CLI entry point with argument parsing
+│   ├── claude_process.py     # Process spawning & management (280 lines)
+│   ├── tool_executor.py      # File operations (Read/Write/Edit/Bash/Glob/Grep) (210 lines)
+│   ├── manager.py            # Manager instance with strict review (350 lines)
+│   ├── worker.py             # Worker instance for implementation (270 lines)
+│   ├── orchestrator.py       # Coordination and workflow (240 lines)
+│   └── terminal_ui.py        # Beautiful terminal UI with colors (310 lines)
 ├── tests/                    # Tests
 ├── requirements.txt          # Dependencies (none!)
 ├── setup.py                  # Installation
 └── README.md                 # This file
 ```
 
-**Total: ~1,300 lines of production Python code**
+**Total: ~1,660 lines of production Python code**
 
 ## Advantages Over TypeScript Version
 

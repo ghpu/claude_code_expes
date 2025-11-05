@@ -5,6 +5,7 @@ Worker - Task implementation using real Claude CLI process
 from typing import Dict, List, Any
 from .claude_process import ClaudeProcess
 from .tool_executor import ToolExecutor
+from .terminal_ui import ui
 
 
 class Worker:
@@ -83,16 +84,14 @@ Working directory: {self.working_dir}
 
     def start(self) -> None:
         """Start the Worker's Claude process"""
-        if self.debug:
-            print("[Worker] Starting...")
+        ui.worker_log("Starting Worker Claude instance...")
 
         self.claude.start()
 
         # Send system prompt
         response = self.claude.send_prompt(self.system_prompt)
 
-        if self.debug:
-            print("[Worker] Initialized and ready")
+        ui.worker_log("Initialized and ready", "success")
 
     def execute_task(self, task_description: str, requirements: List[str] = None) -> Dict[str, Any]:
         """
@@ -105,8 +104,7 @@ Working directory: {self.working_dir}
         Returns:
             Implementation dict with files, tests, documentation
         """
-        if self.debug:
-            print(f"[Worker] Executing task: {task_description}")
+        ui.worker_log(f"Starting task implementation...")
 
         # Reset implementation tracking
         self.current_implementation = {
@@ -128,10 +126,7 @@ Working directory: {self.working_dir}
         # Parse and track implementation details
         self._track_implementation(response.text)
 
-        if self.debug:
-            print(f"[Worker] Task execution complete")
-            print(f"[Worker]   Files: {len(self.current_implementation['files'])}")
-            print(f"[Worker]   Tests: {len(self.current_implementation['tests'])}")
+        ui.worker_log(f"Implementation complete: {len(self.current_implementation['files'])} files, {len(self.current_implementation['tests'])} tests", "success")
 
         return self.current_implementation
 
@@ -240,9 +235,7 @@ Begin now."""
         Returns:
             Updated implementation dict
         """
-        if self.debug:
-            print("[Worker] Received feedback from Manager")
-            print(f"[Worker] Feedback length: {len(feedback)} chars")
+        ui.worker_log("Received feedback from Manager, addressing issues...")
 
         prompt = f"""# MANAGER FEEDBACK
 
@@ -263,13 +256,12 @@ When done, say "IMPLEMENTATION COMPLETE" and explain what you fixed."""
         self.current_implementation['output'] += "\n\n--- REVISION ---\n\n" + response.text
         self._track_implementation(response.text)
 
-        if self.debug:
-            print("[Worker] Revision complete")
+        ui.worker_log("Revision complete, resubmitting for review", "success")
 
         return self.current_implementation
 
     def stop(self) -> None:
         """Stop the Worker's Claude process"""
-        if self.debug:
-            print("[Worker] Stopping...")
+        ui.worker_log("Stopping Worker instance...")
         self.claude.stop()
+        ui.worker_log("Worker stopped", "success")

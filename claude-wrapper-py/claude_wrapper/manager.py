@@ -5,6 +5,7 @@ Manager - Strict code review and task planning using real Claude CLI process
 from typing import Dict, List, Any
 from .claude_process import ClaudeProcess
 from .tool_executor import ToolExecutor
+from .terminal_ui import ui
 
 
 class Manager:
@@ -83,17 +84,16 @@ Working directory: {self.working_dir}
 
     def start(self) -> None:
         """Start the Manager's Claude process"""
-        if self.debug:
-            print("[Manager] Starting...")
+        ui.manager_log("Starting Manager Claude instance...")
 
         self.claude.start()
 
         # Send system prompt
         response = self.claude.send_prompt(self.system_prompt)
 
+        ui.manager_log("Initialized and ready", "success")
         if self.debug:
-            print("[Manager] Initialized and ready")
-            print(f"[Manager] Response: {response.text[:100]}...")
+            ui.manager_log(f"Response preview: {response.text[:100]}...")
 
     def plan_task(self, task_description: str) -> Dict[str, Any]:
         """
@@ -105,8 +105,7 @@ Working directory: {self.working_dir}
         Returns:
             Dictionary with plan details (subtasks, risks, etc.)
         """
-        if self.debug:
-            print(f"[Manager] Planning task: {task_description}")
+        ui.manager_log("Creating implementation plan...")
 
         prompt = f"""# TASK PLANNING REQUEST
 
@@ -141,8 +140,7 @@ Format your response clearly with numbered subtasks."""
             'thinking': response.thinking_content
         }
 
-        if self.debug:
-            print(f"[Manager] Plan created: {len(subtasks)} subtasks")
+        ui.manager_log(f"Plan created with {len(subtasks)} subtasks", "success")
 
         return plan
 
@@ -175,10 +173,9 @@ Format your response clearly with numbered subtasks."""
         Returns:
             Review result with approval status, score, and feedback
         """
-        if self.debug:
-            print("[Manager] Reviewing implementation...")
-            print(f"[Manager]   Files: {len(implementation.get('files', []))}")
-            print(f"[Manager]   Tests: {len(implementation.get('tests', []))}")
+        ui.manager_log("Reviewing implementation...")
+        ui.manager_log(f"Files to review: {len(implementation.get('files', []))}")
+        ui.manager_log(f"Test results: {len(implementation.get('tests', []))}")
 
         # Build review prompt with actual file contents
         prompt = self._build_review_prompt(implementation)
@@ -189,11 +186,9 @@ Format your response clearly with numbered subtasks."""
         # Parse review
         review = self._parse_review(response.text)
 
-        if self.debug:
-            print(f"[Manager] Review complete:")
-            print(f"[Manager]   Score: {review['score']}/100")
-            print(f"[Manager]   Approved: {review['approved']}")
-            print(f"[Manager]   Issues: {len(review['issues'])}")
+        status = "Approved" if review['approved'] else "Rejected"
+        level = "success" if review['approved'] else "warning"
+        ui.manager_log(f"Review complete: {status} (Score: {review['score']}/100, Issues: {len(review['issues'])})", level)
 
         return review
 
@@ -320,8 +315,34 @@ Be ruthless. Only approve if this code meets the HIGHEST standards."""
 
         return review
 
+    def interactive_prompt(self, user_message: str) -> str:
+        """
+        Send a custom prompt to Manager for interaction
+
+        Args:
+            user_message: User's message/question
+
+        Returns:
+            Manager's response text
+        """
+        ui.manager_log(f"User interaction: {user_message[:50]}...")
+
+        prompt = f"""# USER INTERACTION
+
+The user wants to interact with you directly:
+
+{user_message}
+
+Please respond to the user's message."""
+
+        response = self.claude.send_prompt(prompt, timeout=120)
+
+        ui.manager_log("Response ready")
+
+        return response.text
+
     def stop(self) -> None:
         """Stop the Manager's Claude process"""
-        if self.debug:
-            print("[Manager] Stopping...")
+        ui.manager_log("Stopping Manager instance...")
         self.claude.stop()
+        ui.manager_log("Manager stopped", "success")

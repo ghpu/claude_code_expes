@@ -71,9 +71,15 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
     )
 
     parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Enable interactive mode (pause after each subtask to interact with Manager)"
+    )
+
+    parser.add_argument(
         "--claude-path",
-        default="/opt/node22/bin/claude",
-        help="Path to claude CLI executable"
+        default="claude",
+        help="Path to claude CLI executable (default: claude)"
     )
 
     args = parser.parse_args()
@@ -97,6 +103,7 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
     print(f"  Allow Mocks: {args.allow_mocks}")
     print(f"  Require Tests: {not args.no_tests}")
     print(f"  Max Iterations: {args.max_iterations}")
+    print(f"  Interactive Mode: {args.interactive}")
     print(f"  Debug: {args.debug}")
     print(f"  Claude Path: {args.claude_path}")
     print()
@@ -114,7 +121,8 @@ NO SHORTCUTS. NO LAZY CODE. REAL DUAL-INSTANCE ENFORCEMENT.
             working_dir=args.working_dir,
             manager_config=manager_config,
             max_iterations=args.max_iterations,
-            debug=args.debug
+            debug=args.debug,
+            interactive=args.interactive
         )
 
         result = orchestrator.run(args.task)

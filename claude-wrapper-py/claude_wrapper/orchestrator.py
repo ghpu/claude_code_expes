@@ -5,6 +5,7 @@ Orchestrator - Coordinates Manager and Worker Claude processes
 from typing import Dict, Any
 from .manager import Manager
 from .worker import Worker
+from .terminal_ui import ui
 
 
 class Orchestrator:
@@ -15,7 +16,8 @@ class Orchestrator:
         working_dir: str,
         manager_config: Dict[str, Any],
         max_iterations: int = 5,
-        debug: bool = False
+        debug: bool = False,
+        interactive: bool = False
     ):
         """
         Initialize Orchestrator
@@ -25,11 +27,13 @@ class Orchestrator:
             manager_config: Configuration for Manager (strictness, etc.)
             max_iterations: Maximum retry iterations
             debug: Enable debug output
+            interactive: Enable interactive mode (pause for user input)
         """
         self.working_dir = working_dir
         self.manager_config = manager_config
         self.max_iterations = max_iterations
         self.debug = debug
+        self.interactive = interactive
 
         # Will be initialized in run()
         self.manager: Manager = None
@@ -45,73 +49,68 @@ class Orchestrator:
         Returns:
             Final result dict with status and details
         """
-        print("=" * 80)
-        print("  CLAUDE WRAPPER - DUAL INSTANCE MODE (Python + CLI)")
-        print("=" * 80)
-        print(f"\nTask: {task_description}\n")
-        print("=" * 80)
-        print()
+        ui.print_banner("DUAL INSTANCE WORKFLOW STARTING")
+        ui.print_box("Task", [task_description], ui.Colors.BRIGHT_CYAN)
 
         try:
             # Initialize Manager
-            print("[Orchestrator] Initializing Manager...")
+            ui.orchestrator_log("Initializing Manager instance...")
             self.manager = Manager(self.working_dir, self.manager_config, debug=self.debug)
             self.manager.start()
 
             # Initialize Worker
-            print("[Orchestrator] Initializing Worker...")
+            ui.orchestrator_log("Initializing Worker instance...")
             self.worker = Worker(self.working_dir, debug=self.debug)
             self.worker.start()
 
-            print("[Orchestrator] Both instances ready\n")
+            ui.orchestrator_log("Both instances ready!", "success")
 
             # Phase 1: Planning
-            print("[Orchestrator] Phase 1: PLANNING")
-            print("-" * 80)
+            ui.print_section("Phase 1: PLANNING")
+            ui.orchestrator_log("Requesting plan from Manager...")
+
             plan = self.manager.plan_task(task_description)
 
-            print(f"[Orchestrator] Plan created:")
-            print(f"  Subtasks: {len(plan['subtasks'])}")
-            for i, subtask in enumerate(plan['subtasks'], 1):
-                print(f"    {i}. {subtask}")
-            print()
+            ui.orchestrator_log(f"Plan created with {len(plan['subtasks'])} subtasks", "success")
+            subtask_list = [f"{i}. {subtask}" for i, subtask in enumerate(plan['subtasks'], 1)]
+            ui.print_box("Subtasks", subtask_list, ui.Colors.BRIGHT_YELLOW)
 
             # Phase 2: Implementation with review iterations
-            print("[Orchestrator] Phase 2: IMPLEMENTATION")
-            print("-" * 80)
+            ui.print_section("Phase 2: IMPLEMENTATION & REVIEW")
 
             results = []
 
             for i, subtask in enumerate(plan['subtasks'], 1):
-                print(f"\n[Orchestrator] Subtask {i}/{len(plan['subtasks'])}: {subtask}")
-                print("-" * 80)
+                ui.print_subtask_header(i, len(plan['subtasks']), subtask)
 
                 result = self._execute_subtask_with_review(subtask)
                 results.append(result)
 
                 if not result['approved']:
-                    print(f"[Orchestrator] ✗ Subtask {i} failed after {self.max_iterations} iterations")
-                    # Could choose to continue or stop here
-                    # For now, we'll continue with other subtasks
+                    ui.orchestrator_log(f"Subtask {i} failed after {self.max_iterations} iterations", "error")
                 else:
-                    print(f"[Orchestrator] ✓ Subtask {i} completed successfully")
+                    ui.orchestrator_log(f"Subtask {i} completed successfully", "success")
+
+                # Interactive mode - allow user to interact with Manager
+                if self.interactive and i < len(plan['subtasks']):
+                    ui.orchestrator_log("Interactive mode enabled", "info")
+                    try:
+                        self._handle_user_interaction()
+                    except KeyboardInterrupt:
+                        ui.orchestrator_log("User cancelled workflow", "warning")
+                        break
 
             # Summary
-            print("\n" + "=" * 80)
-            print("  SUMMARY")
-            print("=" * 80)
-
             approved_count = sum(1 for r in results if r['approved'])
-            print(f"Subtasks completed: {approved_count}/{len(results)}")
-            print()
+            failed_count = len(results) - approved_count
+
+            ui.print_summary(len(results), approved_count, failed_count)
 
             all_approved = all(r['approved'] for r in results)
 
             if all_approved:
-                print("✓ All subtasks completed successfully!")
                 status = "success"
             else:
-                print("✗ Some subtasks failed to meet quality standards")
                 status = "partial"
 
             return {
@@ -124,12 +123,12 @@ class Orchestrator:
 
         finally:
             # Clean up
-            print("\n[Orchestrator] Shutting down...")
+            ui.orchestrator_log("Shutting down instances...")
             if self.manager:
                 self.manager.stop()
             if self.worker:
                 self.worker.stop()
-            print("[Orchestrator] Shutdown complete")
+            ui.orchestrator_log("Shutdown complete", "success")
 
     def _execute_subtask_with_review(self, subtask_description: str) -> Dict[str, Any]:
         """
@@ -147,10 +146,10 @@ class Orchestrator:
 
         while iteration < self.max_iterations:
             iteration += 1
-            print(f"\n[Orchestrator] Iteration {iteration}/{self.max_iterations}")
+            ui.print_iteration_header(iteration, self.max_iterations)
 
             # Worker implements
-            print("[Orchestrator] → Worker: Implement subtask")
+            ui.orchestrator_log("→ Worker: Requesting implementation")
             if iteration == 1:
                 implementation = self.worker.execute_task(subtask_description)
             else:
@@ -158,21 +157,20 @@ class Orchestrator:
                 feedback = self._format_feedback(review)
                 implementation = self.worker.provide_feedback(feedback)
 
-            print(f"[Orchestrator] ← Worker: Implementation submitted")
-            print(f"   Files: {len(implementation['files'])}")
-            print(f"   Tests: {len(implementation['tests'])}")
+            ui.orchestrator_log("← Worker: Implementation received")
+            ui.print_progress(f"Files modified/created: {len(implementation['files'])}")
+            ui.print_progress(f"Tests executed: {len(implementation['tests'])}")
 
             # Manager reviews
-            print("[Orchestrator] → Manager: Review implementation")
+            ui.orchestrator_log("→ Manager: Requesting code review")
             review = self.manager.review_implementation(implementation)
 
-            print(f"[Orchestrator] ← Manager: Review complete")
-            print(f"   Score: {review['score']}/100")
-            print(f"   Status: {'✓ APPROVED' if review['approved'] else '✗ REJECTED'}")
+            ui.orchestrator_log("← Manager: Review received")
+            ui.print_review_result(review['approved'], review['score'], len(review['issues']))
 
             # Check if approved
             if review['approved']:
-                print(f"[Orchestrator] ✓ Subtask approved after {iteration} iteration(s)")
+                ui.orchestrator_log(f"Subtask approved after {iteration} iteration(s)", "success")
                 return {
                     'approved': True,
                     'iterations': iteration,
@@ -181,16 +179,13 @@ class Orchestrator:
                 }
 
             # Not approved - show feedback
-            print(f"[Orchestrator] ✗ Rejected - providing feedback to Worker")
-            print(f"   Issues: {len(review['issues'])}")
+            ui.orchestrator_log("Implementation rejected - providing feedback to Worker", "warning")
             if review['required_changes']:
-                print("   Required changes:")
-                for change in review['required_changes'][:3]:  # Show first 3
-                    print(f"     - {change}")
+                ui.print_box("Required Changes", review['required_changes'][:5], ui.Colors.YELLOW)
 
         # Max iterations exceeded
-        print(f"\n[Orchestrator] ✗ Max iterations ({self.max_iterations}) exceeded")
-        print(f"   Final score: {review['score']}/100")
+        ui.orchestrator_log(f"Max iterations ({self.max_iterations}) exceeded", "error")
+        ui.print_warning(f"Final score: {review['score']}/100")
 
         return {
             'approved': False,
@@ -230,3 +225,27 @@ class Orchestrator:
 Be thorough. The Manager will review again."""
 
         return feedback
+
+    def _handle_user_interaction(self) -> None:
+        """Handle interactive mode - allow user to interact with Manager"""
+        while True:
+            print()
+            user_input = ui.ask_user("Enter message for Manager (or 'continue' to proceed):")
+
+            if user_input.lower() in ['continue', 'c', '']:
+                break
+
+            if user_input.lower() in ['quit', 'exit', 'q']:
+                ui.print_warning("User requested exit")
+                raise KeyboardInterrupt("User exit")
+
+            # Send to Manager
+            response = self.manager.interactive_prompt(user_input)
+
+            # Display response
+            ui.print_box("Manager Response", [response], ui.Colors.BRIGHT_BLUE)
+
+            print()
+            again = ui.ask_user("Ask another question? (y/n):")
+            if again.lower() not in ['y', 'yes']:
+                break
