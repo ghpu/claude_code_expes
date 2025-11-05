@@ -31,11 +31,13 @@ class ClaudeResponse:
 
 
 class LogToMonitor:
-    """Helper class to route pexpect output to monitor"""
+    """Helper class to route pexpect output to monitor with intelligent parsing"""
 
     def __init__(self, monitor_app, role: str):
         self.monitor_app = monitor_app
         self.role = role
+        self.buffer = ""
+        self.last_line = ""
 
     def write(self, data: str):
         """Called by pexpect when it reads data"""
@@ -45,18 +47,79 @@ class LogToMonitor:
         # Strip ANSI escape codes for clean display
         clean_data = strip_ansi(data)
 
-        # Only send non-empty, meaningful data
-        if clean_data.strip():
-            # Send to monitor
+        # Filter out common TUI noise patterns
+        if self._is_tui_noise(clean_data):
+            return
+
+        # Buffer data to process complete lines
+        self.buffer += clean_data
+
+        # Process complete lines
+        while '\n' in self.buffer:
+            line, self.buffer = self.buffer.split('\n', 1)
+            line = line.strip()
+
+            # Skip empty lines and duplicates
+            if not line or line == self.last_line:
+                continue
+
+            # Skip repetitive status updates
+            if self._is_status_update(line):
+                continue
+
+            self.last_line = line
+
+            # Send meaningful content to monitor
             if self.monitor_app:
                 if self.role.lower() == 'manager':
-                    self.monitor_app.add_manager_message(clean_data)
+                    self.monitor_app.add_manager_message(line)
                 else:
-                    self.monitor_app.add_worker_message(clean_data)
+                    self.monitor_app.add_worker_message(line)
+
+    def _is_tui_noise(self, text: str) -> bool:
+        """Check if text is TUI noise (progress bars, spinners, etc.)"""
+        noise_patterns = [
+            r'^\s*[\|\-\\/]+\s*$',  # Spinner characters
+            r'^\s*\[=+>\s*\]\s*$',  # Progress bars
+            r'^\s*\d+%\s*$',  # Percentage only
+            r'^\s*[\.]{3,}\s*$',  # Ellipsis patterns
+            r'^\s*$',  # Empty
+        ]
+
+        for pattern in noise_patterns:
+            if re.match(pattern, text):
+                return True
+
+        return False
+
+    def _is_status_update(self, line: str) -> bool:
+        """Check if line is a repetitive status update"""
+        # Skip lines that look like status indicators
+        status_prefixes = [
+            'Loading',
+            'Initializing',
+            'Processing',
+            'Waiting',
+            'Connecting',
+        ]
+
+        for prefix in status_prefixes:
+            if line.startswith(prefix) and '...' in line:
+                return True
+
+        return False
 
     def flush(self):
         """Required for file-like interface"""
-        pass
+        # Flush remaining buffer
+        if self.buffer.strip() and self.monitor_app:
+            clean = self.buffer.strip()
+            if clean and not self._is_tui_noise(clean):
+                if self.role.lower() == 'manager':
+                    self.monitor_app.add_manager_message(clean)
+                else:
+                    self.monitor_app.add_worker_message(clean)
+        self.buffer = ""
 
 
 class ClaudeProcess:
@@ -137,16 +200,33 @@ class ClaudeProcess:
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "success", f"Claude CLI spawned (PID: {self.child.pid})")
 
-            # Wait for Claude CLI to be ready - look for common patterns
+            # Wait for Claude CLI to be ready
             if self.monitor_app:
-                self.monitor_app.add_debug("PEXPECT", "info", "Waiting for Claude CLI to be ready...")
+                self.monitor_app.add_debug("PEXPECT", "info", "Waiting for Claude CLI to initialize...")
 
-            # Try to detect if Claude is ready by waiting for initial output
-            # Claude CLI might show welcome message, prompt, or just be silent
-            time.sleep(2)
+            # Wait for Claude to show prompt or become idle
+            # Look for common prompt patterns or wait for initialization to complete
+            try:
+                # Try to detect prompt patterns like "> ", "$ ", "? ", or just wait
+                index = self.child.expect([
+                    r'[>\$\?]\s*$',  # Common prompt patterns
+                    pexpect.TIMEOUT
+                ], timeout=10)
+
+                if index == 0:
+                    if self.monitor_app:
+                        self.monitor_app.add_debug("PEXPECT", "success", f"Detected prompt: {self.child.after}")
+                else:
+                    # Timeout - Claude might be waiting silently
+                    if self.monitor_app:
+                        self.monitor_app.add_debug("PEXPECT", "info", "No prompt detected, assuming ready")
+
+            except pexpect.TIMEOUT:
+                if self.monitor_app:
+                    self.monitor_app.add_debug("PEXPECT", "info", "Timeout waiting for prompt, assuming ready")
 
             if self.monitor_app:
-                self.monitor_app.add_debug("PEXPECT", "success", "Claude CLI ready")
+                self.monitor_app.add_debug("PEXPECT", "success", "Claude CLI ready for input")
 
             if self.role.lower() == 'manager':
                 ui.manager_log(f"Process started successfully (PID: {self.child.pid})", "success")
@@ -182,14 +262,10 @@ class ClaudeProcess:
         else:
             ui.worker_log(f"Sending prompt ({len(prompt)} chars)")
 
-        # Show outgoing prompt in monitor
+        # Log to debug only (not conversation window)
         if self.monitor_app:
             prompt_preview = prompt[:200] + "..." if len(prompt) > 200 else prompt
-            if self.role.lower() == 'manager':
-                self.monitor_app.add_manager_message(f">>> SENDING PROMPT: {prompt_preview}")
-            else:
-                self.monitor_app.add_worker_message(f">>> SENDING PROMPT: {prompt_preview}")
-            self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars)...")
+            self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars): {prompt_preview}")
 
         try:
             # Send prompt to Claude CLI
