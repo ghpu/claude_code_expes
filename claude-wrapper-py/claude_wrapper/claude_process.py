@@ -44,17 +44,30 @@ class LogToMonitor:
         if not data:
             return
 
+        # Log raw data for debugging
+        if self.monitor_app:
+            raw_preview = data[:100].replace('\n', '\\n').replace('\r', '\\r')
+            self.monitor_app.add_debug("LOG_FILTER", "debug", f"Raw data: {raw_preview}...")
+
         # Strip ANSI escape codes for clean display
         clean_data = strip_ansi(data)
 
+        # Log what we got after ANSI stripping
+        if self.monitor_app and clean_data:
+            clean_preview = clean_data[:100].replace('\n', '\\n').replace('\r', '\\r')
+            self.monitor_app.add_debug("LOG_FILTER", "debug", f"After ANSI strip: {clean_preview}...")
+
         # Filter out common TUI noise patterns
         if self._is_tui_noise(clean_data):
+            if self.monitor_app:
+                self.monitor_app.add_debug("LOG_FILTER", "debug", "FILTERED as TUI noise")
             return
 
         # Buffer data
         self.buffer += clean_data
 
         # Process complete lines
+        lines_processed = 0
         while '\n' in self.buffer:
             line, self.buffer = self.buffer.split('\n', 1)
             line = line.strip()
@@ -65,9 +78,12 @@ class LogToMonitor:
 
             # Skip repetitive status updates
             if self._is_status_update(line):
+                if self.monitor_app:
+                    self.monitor_app.add_debug("LOG_FILTER", "debug", f"FILTERED status: {line[:50]}")
                 continue
 
             self.last_line = line
+            lines_processed += 1
 
             # Send meaningful content to monitor
             if self.monitor_app:
@@ -75,6 +91,9 @@ class LogToMonitor:
                     self.monitor_app.add_manager_message(line)
                 else:
                     self.monitor_app.add_worker_message(line)
+
+        if self.monitor_app and lines_processed > 0:
+            self.monitor_app.add_debug("LOG_FILTER", "info", f"Sent {lines_processed} lines to conversation window")
 
         # Also show partial buffer content (current line being typed/displayed)
         # Update every 50 characters or so to show typing progress
