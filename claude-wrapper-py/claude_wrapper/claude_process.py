@@ -56,6 +56,19 @@ class ClaudeProcess:
 
         claude_path = os.getenv('CLAUDE_PATH', '/opt/node22/bin/claude')
 
+        # Check if Claude binary exists
+        if not os.path.exists(claude_path):
+            error_msg = f"Claude CLI not found at {claude_path}"
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "error", error_msg)
+            raise FileNotFoundError(error_msg)
+
+        if not os.access(claude_path, os.X_OK):
+            error_msg = f"Claude CLI at {claude_path} is not executable"
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "error", error_msg)
+            raise PermissionError(error_msg)
+
         if self.role.lower() == 'manager':
             ui.manager_log(f"Starting Claude CLI process at {claude_path}")
             ui.manager_log(f"Working directory: {self.working_dir}")
@@ -70,7 +83,8 @@ class ClaudeProcess:
 
         try:
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Creating subprocess at {claude_path}...")
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Claude binary verified, creating subprocess...")
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Working dir: {self.working_dir}")
 
             self.process = subprocess.Popen(
                 [claude_path],
@@ -109,6 +123,18 @@ class ClaudeProcess:
             if self.monitor_app:
                 self.monitor_app.add_debug("CLAUDE_PROC", "info", "Sleeping 2s for initialization...")
             time.sleep(2)
+
+            # Check for any stderr messages
+            if self.monitor_app:
+                stderr_lines = []
+                try:
+                    while not self.stderr_queue.empty():
+                        stderr_lines.append(self.stderr_queue.get_nowait())
+                except:
+                    pass
+                if stderr_lines:
+                    for line in stderr_lines[:5]:  # Show first 5 stderr lines
+                        self.monitor_app.add_debug("CLAUDE_STDERR", "warning", line.strip())
 
             if self.monitor_app:
                 self.monitor_app.add_debug("CLAUDE_PROC", "info", "About to consume initial output (3s timeout)...")
@@ -167,9 +193,17 @@ class ClaudeProcess:
         start_time = time.time()
         last_output_time = start_time
         idle_threshold = 2.0  # Stop if no output for 2 seconds
+        last_status_time = start_time
 
         if self.monitor_app:
             self.monitor_app.add_debug("CONSUME", "info", f"Starting output consumption (timeout={timeout}s)")
+            # Check if process is alive
+            if self.process:
+                poll_result = self.process.poll()
+                if poll_result is not None:
+                    self.monitor_app.add_debug("CONSUME", "error", f"Process already exited with code {poll_result}!")
+                else:
+                    self.monitor_app.add_debug("CONSUME", "info", f"Process is alive (PID: {self.process.pid})")
 
         while True:
             try:
@@ -178,6 +212,9 @@ class ClaudeProcess:
                 output_lines.append(line)
                 last_output_time = time.time()
 
+                if self.monitor_app:
+                    self.monitor_app.add_debug("CONSUME", "debug", f"Got line: {line[:50]}...")
+
                 # Already shown via streaming in _read_stream
                 pass
 
@@ -185,6 +222,17 @@ class ClaudeProcess:
                 # Check if we should stop
                 elapsed = time.time() - start_time
                 idle_time = time.time() - last_output_time
+
+                # Periodic status update every 1 second
+                if self.monitor_app and (time.time() - last_status_time) > 1.0:
+                    self.monitor_app.add_debug("CONSUME", "debug", f"Still waiting... elapsed={elapsed:.1f}s, lines={len(output_lines)}, idle={idle_time:.1f}s")
+                    last_status_time = time.time()
+
+                    # Check if process died
+                    if self.process:
+                        poll_result = self.process.poll()
+                        if poll_result is not None:
+                            self.monitor_app.add_debug("CONSUME", "error", f"Process died with exit code {poll_result}!")
 
                 if elapsed > timeout:
                     if self.monitor_app:
