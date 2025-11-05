@@ -188,15 +188,23 @@ class ClaudeProcess:
     def _read_pty(self, master_fd: int, output_queue: queue.Queue) -> None:
         """Read from PTY master and put into queue"""
         try:
+            if self.monitor_app:
+                self.monitor_app.add_debug("PTY_READER", "info", "PTY read thread started")
+
             while self.is_running:
                 try:
                     # Read from PTY (non-blocking)
                     data = os.read(master_fd, 4096)
                     if not data:
+                        if self.monitor_app:
+                            self.monitor_app.add_debug("PTY_READER", "warning", "PTY returned empty data, exiting")
                         break
 
                     # Decode and split into lines
                     text = data.decode('utf-8', errors='replace')
+
+                    if self.monitor_app:
+                        self.monitor_app.add_debug("PTY_READER", "success", f"PTY received {len(data)} bytes: {text[:50]}...")
 
                     # Put each character/chunk into queue for processing
                     output_queue.put(text)
@@ -315,6 +323,14 @@ class ClaudeProcess:
         else:
             ui.worker_log(f"Sending prompt ({len(prompt)} chars)")
 
+        # Show outgoing prompt in monitor
+        if self.monitor_app:
+            prompt_preview = prompt[:200] + "..." if len(prompt) > 200 else prompt
+            if self.role.lower() == 'manager':
+                self.monitor_app.add_manager_message(f">>> SENDING PROMPT: {prompt_preview}")
+            else:
+                self.monitor_app.add_worker_message(f">>> SENDING PROMPT: {prompt_preview}")
+
         # Send prompt via PTY
         try:
             if self.monitor_app:
@@ -326,6 +342,7 @@ class ClaudeProcess:
 
             if self.monitor_app:
                 self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Prompt written to PTY ({bytes_written} bytes)")
+                self.monitor_app.add_debug("CLAUDE_PROC", "debug", f"First 100 chars: {prompt[:100]}")
 
         except Exception as e:
             if self.monitor_app:
