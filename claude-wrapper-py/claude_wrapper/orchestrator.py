@@ -5,7 +5,7 @@ Orchestrator - Coordinates Manager and Worker Claude processes
 from typing import Dict, Any
 from .manager import Manager
 from .worker import Worker
-from .terminal_ui import ui
+from .terminal_ui import ui, Colors
 
 
 class Orchestrator:
@@ -50,7 +50,7 @@ class Orchestrator:
             Final result dict with status and details
         """
         ui.print_banner("DUAL INSTANCE WORKFLOW STARTING")
-        ui.print_box("Task", [task_description], ui.Colors.BRIGHT_CYAN)
+        ui.print_box("Task", [task_description], Colors.BRIGHT_CYAN)
 
         try:
             # Initialize Manager
@@ -73,7 +73,7 @@ class Orchestrator:
 
             ui.orchestrator_log(f"Plan created with {len(plan['subtasks'])} subtasks", "success")
             subtask_list = [f"{i}. {subtask}" for i, subtask in enumerate(plan['subtasks'], 1)]
-            ui.print_box("Subtasks", subtask_list, ui.Colors.BRIGHT_YELLOW)
+            ui.print_box("Subtasks", subtask_list, Colors.BRIGHT_YELLOW)
 
             # Phase 2: Implementation with review iterations
             ui.print_section("Phase 2: IMPLEMENTATION & REVIEW")
@@ -181,7 +181,7 @@ class Orchestrator:
             # Not approved - show feedback
             ui.orchestrator_log("Implementation rejected - providing feedback to Worker", "warning")
             if review['required_changes']:
-                ui.print_box("Required Changes", review['required_changes'][:5], ui.Colors.YELLOW)
+                ui.print_box("Required Changes", review['required_changes'][:5], Colors.YELLOW)
 
         # Max iterations exceeded
         ui.orchestrator_log(f"Max iterations ({self.max_iterations}) exceeded", "error")
@@ -243,7 +243,7 @@ Be thorough. The Manager will review again."""
             response = self.manager.interactive_prompt(user_input)
 
             # Display response
-            ui.print_box("Manager Response", [response], ui.Colors.BRIGHT_BLUE)
+            ui.print_box("Manager Response", [response], Colors.BRIGHT_BLUE)
 
             print()
             again = ui.ask_user("Ask another question? (y/n):")
