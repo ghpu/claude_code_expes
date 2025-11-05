@@ -268,11 +268,20 @@ class ClaudeProcess:
             self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars): {prompt_preview}")
 
         try:
-            # Send prompt to Claude CLI
-            self.child.sendline(prompt)
+            # Send prompt to Claude CLI character by character (like human typing)
+            if self.monitor_app:
+                self.monitor_app.add_debug("PEXPECT", "info", "Typing prompt character by character...")
+
+            for char in prompt:
+                self.child.send(char)
+                # Small delay to simulate human typing (prevents input buffer issues)
+                time.sleep(0.01)
+
+            # Send Enter key to confirm/submit
+            self.child.send('\r')  # Carriage return (Enter key)
 
             if self.monitor_app:
-                self.monitor_app.add_debug("PEXPECT", "success", "Prompt sent via pexpect")
+                self.monitor_app.add_debug("PEXPECT", "success", "Prompt typed and submitted with Enter key")
 
             # Wait for Claude to finish processing - just use timeout
             # Claude CLI will output continuously, so we collect for a reasonable time
