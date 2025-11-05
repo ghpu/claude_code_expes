@@ -170,7 +170,7 @@ export class Critic {
     }
 
     // Check tests
-    const testsPassed = implementation.tests.length > 0 && implementation.tests.every(t => t.passed);
+    const testsPassed: boolean = implementation.tests.length > 0 && implementation.tests.every(t => t.passed);
     if (implementation.tests.length === 0) {
       issues.push({
         type: 'test_failure',
@@ -186,7 +186,7 @@ export class Critic {
     }
 
     // Check documentation
-    const isDocumented = implementation.documentation && implementation.documentation.length > 100;
+    const isDocumented: boolean = !!(implementation.documentation && implementation.documentation.length > 100);
     if (!isDocumented) {
       issues.push({
         type: 'missing_docs',

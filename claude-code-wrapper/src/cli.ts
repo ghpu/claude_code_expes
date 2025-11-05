@@ -127,10 +127,36 @@ async function main(): Promise<void> {
     config = loadConfig(options.config);
   }
 
-  // Apply CLI options
-  if (!config.manager) config.manager = {};
-  if (!config.worker) config.worker = {};
-  if (!config.logging) config.logging = {};
+  // Apply CLI options with defaults
+  if (!config.manager) {
+    config.manager = {
+      strictness: 'high',
+      allowMocks: false,
+      requireTests: true,
+      requireDocumentation: true,
+      maxIterations: 10,
+      qualityGates: ['tests', 'linting', 'type-checking'],
+      reviewTimeout: 300000,
+      autoApproveSimpleChanges: false,
+    };
+  }
+
+  if (!config.worker) {
+    config.worker = {
+      enableHooks: true,
+      hookTimeout: 60000,
+      maxRetries: 3,
+      requestApprovalFor: ['Bash', 'Write', 'Edit'],
+      autoSubmitAfterTools: ['Read', 'Grep', 'Glob'],
+      workingDirectory: process.cwd(),
+    };
+  }
+
+  if (!config.logging) {
+    config.logging = {
+      level: 'info',
+    };
+  }
 
   if (options.strictness) {
     config.manager.strictness = options.strictness;
@@ -154,10 +180,10 @@ async function main(): Promise<void> {
 
   // Display configuration
   console.log('Configuration:');
-  console.log(`  Strictness: ${config.manager.strictness || 'high'}`);
-  console.log(`  Allow Mocks: ${config.manager.allowMocks || false}`);
-  console.log(`  Require Tests: ${config.manager.requireTests !== false}`);
-  console.log(`  Working Dir: ${config.worker.workingDirectory || process.cwd()}`);
+  console.log(`  Strictness: ${config.manager.strictness}`);
+  console.log(`  Allow Mocks: ${config.manager.allowMocks}`);
+  console.log(`  Require Tests: ${config.manager.requireTests}`);
+  console.log(`  Working Dir: ${config.worker.workingDirectory}`);
   console.log('');
 
   try {
