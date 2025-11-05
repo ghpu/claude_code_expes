@@ -12,6 +12,15 @@ from dataclasses import dataclass
 from .terminal_ui import ui
 
 
+# ANSI escape code regex for stripping terminal control sequences
+ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text"""
+    return ANSI_ESCAPE.sub('', text)
+
+
 @dataclass
 class ClaudeResponse:
     """Response from Claude CLI"""
@@ -33,12 +42,17 @@ class LogToMonitor:
         if not data:
             return
 
-        # Send to monitor
-        if self.monitor_app:
-            if self.role.lower() == 'manager':
-                self.monitor_app.add_manager_message(data)
-            else:
-                self.monitor_app.add_worker_message(data)
+        # Strip ANSI escape codes for clean display
+        clean_data = strip_ansi(data)
+
+        # Only send non-empty, meaningful data
+        if clean_data.strip():
+            # Send to monitor
+            if self.monitor_app:
+                if self.role.lower() == 'manager':
+                    self.monitor_app.add_manager_message(clean_data)
+                else:
+                    self.monitor_app.add_worker_message(clean_data)
 
     def flush(self):
         """Required for file-like interface"""
@@ -184,23 +198,46 @@ class ClaudeProcess:
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "success", "Prompt sent via pexpect")
 
-            # Wait for response - expect any output or timeout
-            # Claude may respond with various patterns, so we use a generous regex
-            self.child.expect([pexpect.TIMEOUT, pexpect.EOF, '.+'], timeout=timeout)
+            # Wait for Claude to finish processing - just use timeout
+            # Claude CLI will output continuously, so we collect for a reasonable time
+            # then check if output has stopped (idle detection)
+            time.sleep(2)  # Give Claude time to start responding
 
-            # Collect everything that was output
-            response_text = self.child.before + self.child.after if self.child.after else self.child.before
+            # Try to read all available output with a reasonable timeout
+            # We'll keep reading until output stops for 2 seconds
+            start_time = time.time()
+            last_output_time = time.time()
+            response_parts = []
+            idle_timeout = 3.0  # Stop if no output for 3 seconds
 
-            if not response_text:
-                response_text = ""
+            while (time.time() - start_time) < timeout:
+                try:
+                    # Try to read with very short timeout
+                    self.child.expect([pexpect.TIMEOUT], timeout=0.5)
+
+                    # Got some output
+                    if self.child.before:
+                        response_parts.append(self.child.before)
+                        last_output_time = time.time()
+
+                except pexpect.TIMEOUT:
+                    # Check if we've been idle too long
+                    idle_time = time.time() - last_output_time
+                    if idle_time > idle_timeout and response_parts:
+                        if self.monitor_app:
+                            self.monitor_app.add_debug("PEXPECT", "info", f"Idle for {idle_time:.1f}s, assuming response complete")
+                        break
+
+            response_text = ''.join(response_parts)
+
+            # Strip ANSI escape codes for clean response
+            response_text = strip_ansi(response_text)
 
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "success", f"Response received ({len(response_text)} chars)")
-
-        except pexpect.TIMEOUT:
-            if self.monitor_app:
-                self.monitor_app.add_debug("PEXPECT", "warning", f"Timeout after {timeout}s waiting for response")
-            response_text = self.child.before if self.child.before else ""
+                if response_text:
+                    preview = response_text[:200].replace('\n', '\\n')
+                    self.monitor_app.add_debug("PEXPECT", "debug", f"Response preview: {preview}...")
 
         except pexpect.EOF:
             if self.monitor_app:
