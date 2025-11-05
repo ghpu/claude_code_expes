@@ -51,7 +51,7 @@ class LogToMonitor:
         if self._is_tui_noise(clean_data):
             return
 
-        # Buffer data to process complete lines
+        # Buffer data
         self.buffer += clean_data
 
         # Process complete lines
@@ -75,6 +75,16 @@ class LogToMonitor:
                     self.monitor_app.add_manager_message(line)
                 else:
                     self.monitor_app.add_worker_message(line)
+
+        # Also show partial buffer content (current line being typed/displayed)
+        # Update every 50 characters or so to show typing progress
+        if self.buffer and len(self.buffer) % 50 == 0:
+            if self.monitor_app:
+                preview = self.buffer[-100:] if len(self.buffer) > 100 else self.buffer
+                if self.role.lower() == 'manager':
+                    self.monitor_app.add_manager_message(f"[Typing...] {preview}")
+                else:
+                    self.monitor_app.add_worker_message(f"[Typing...] {preview}")
 
     def _is_tui_noise(self, text: str) -> bool:
         """Check if text is TUI noise (progress bars, spinners, etc.)"""
@@ -268,6 +278,14 @@ class ClaudeProcess:
             self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars): {prompt_preview}")
 
         try:
+            # Display the prompt in conversation window as we send it
+            # (Claude CLI might not echo, so we show what we're typing)
+            if self.monitor_app:
+                if self.role.lower() == 'manager':
+                    self.monitor_app.add_manager_message(f"[User Input]\n{prompt}\n")
+                else:
+                    self.monitor_app.add_worker_message(f"[User Input]\n{prompt}\n")
+
             # Send prompt to Claude CLI character by character (like human typing)
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "info", "Typing prompt character by character...")
@@ -286,6 +304,7 @@ class ClaudeProcess:
 
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "success", "Prompt typed and submitted with Enter key")
+                self.monitor_app.add_debug("PEXPECT", "info", "Checking if Claude CLI produced any echo...")
 
             # Wait for Claude to finish processing - just use timeout
             # Claude CLI will output continuously, so we collect for a reasonable time
