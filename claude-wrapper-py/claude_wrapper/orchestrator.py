@@ -55,10 +55,15 @@ class Orchestrator:
         """
         # Set up monitor if provided
         if self.monitor_app:
+            self.monitor_app.add_debug("ORCHESTRATOR", "info", f"run() called with task: {task_description[:50]}...")
             self.monitor_app.update_status("Initializing workflow...")
+            self.monitor_app.add_debug("ORCHESTRATOR", "info", f"Working dir: {self.working_dir}")
+            self.monitor_app.add_debug("ORCHESTRATOR", "info", f"Max iterations: {self.max_iterations}")
+            self.monitor_app.add_debug("ORCHESTRATOR", "info", f"Debug mode: {self.debug}")
 
             # Set interaction callback
             def handle_interaction(message: str):
+                self.monitor_app.add_debug("INTERACTION", "info", f"User message: {message[:50]}...")
                 response = self.manager.interactive_prompt(message)
                 self.monitor_app.add_manager_message(f"[RESPONSE] {response}", "text")
 
@@ -71,19 +76,31 @@ class Orchestrator:
         try:
             # Initialize Manager
             if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "info", "Creating Manager instance...")
                 self.monitor_app.update_status("Initializing Manager...")
             ui.orchestrator_log("Initializing Manager instance...")
             self.manager = Manager(self.working_dir, self.manager_config, debug=self.debug, monitor_app=self.monitor_app)
+            if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "info", "Manager instance created, calling start()...")
             self.manager.start()
+            if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "success", "Manager started successfully")
 
             # Initialize Worker
             if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "info", "Creating Worker instance...")
                 self.monitor_app.update_status("Initializing Worker...")
             ui.orchestrator_log("Initializing Worker instance...")
             self.worker = Worker(self.working_dir, debug=self.debug, monitor_app=self.monitor_app)
+            if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "info", "Worker instance created, calling start()...")
             self.worker.start()
+            if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "success", "Worker started successfully")
 
             ui.orchestrator_log("Both instances ready!", "success")
+            if self.monitor_app:
+                self.monitor_app.add_debug("ORCHESTRATOR", "success", "Both Claude instances initialized and ready")
 
             # Phase 1: Planning
             ui.print_section("Phase 1: PLANNING")

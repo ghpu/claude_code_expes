@@ -145,6 +145,57 @@ class ReviewPanel(ScrollableContainer):
         self.scroll_home(animate=False)
 
 
+class DebugPanel(ScrollableContainer):
+    """Panel showing debug and diagnostic messages"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.border_title = "Debug Log (F5)"
+        self.messages = []
+
+    def add_debug_message(self, source: str, level: str, message: str):
+        """Add a debug message to the panel"""
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
+
+        # Color based on level
+        if level == "error":
+            level_color = "bright_red"
+            icon = "✗"
+        elif level == "warning":
+            level_color = "bright_yellow"
+            icon = "⚠"
+        elif level == "success":
+            level_color = "bright_green"
+            icon = "✓"
+        elif level == "info":
+            level_color = "bright_cyan"
+            icon = "ℹ"
+        else:
+            level_color = "white"
+            icon = "●"
+
+        # Create styled message
+        msg_text = Text()
+        msg_text.append(f"[{timestamp}] ", style="dim")
+        msg_text.append(f"{icon} ", style=level_color)
+        msg_text.append(f"[{source:12}] ", style="bold bright_white")
+        msg_text.append(f"{message}", style=level_color if level != "debug" else "dim")
+
+        self.messages.append(msg_text)
+
+        # Add to display
+        label = Label(msg_text)
+        self.mount(label)
+
+        # Auto-scroll to bottom
+        self.scroll_end(animate=False)
+
+    def clear_messages(self):
+        """Clear all debug messages"""
+        self.messages = []
+        self.remove_children()
+
+
 class StatusBar(Static):
     """Status bar showing current workflow status"""
 
@@ -177,7 +228,7 @@ class MonitorApp(App):
     }
 
     #conversations {
-        height: 65%;
+        height: 50%;
         border: solid $primary;
     }
 
@@ -194,8 +245,14 @@ class MonitorApp(App):
     }
 
     #review-panel {
-        height: 25%;
+        height: 20%;
         border: solid cyan;
+        background: $surface-darken-1;
+    }
+
+    #debug-panel {
+        height: 20%;
+        border: solid yellow;
         background: $surface-darken-1;
     }
 
@@ -222,6 +279,7 @@ class MonitorApp(App):
         Binding("f2", "toggle_worker", "Toggle Worker", show=True),
         Binding("f3", "toggle_review", "Toggle Review", show=True),
         Binding("f4", "clear_all", "Clear All", show=True),
+        Binding("f5", "toggle_debug", "Toggle Debug", show=True),
         Binding("ctrl+c", "quit", "Quit", show=True),
     ]
 
@@ -230,6 +288,7 @@ class MonitorApp(App):
         self.manager_panel: Optional[ConversationPanel] = None
         self.worker_panel: Optional[ConversationPanel] = None
         self.review_panel: Optional[ReviewPanel] = None
+        self.debug_panel: Optional[DebugPanel] = None
         self.status_bar: Optional[StatusBar] = None
         self.input_widget: Optional[Input] = None
 
@@ -238,11 +297,13 @@ class MonitorApp(App):
         self.worker_queue = queue.Queue()
         self.review_queue = queue.Queue()
         self.status_queue = queue.Queue()
+        self.debug_queue = queue.Queue()
 
         # Visibility flags
         self.show_manager = True
         self.show_worker = True
         self.show_review = True
+        self.show_debug = True
 
         # Interaction callback
         self.interaction_callback = None
@@ -263,6 +324,9 @@ class MonitorApp(App):
             # Review panel
             yield ReviewPanel(id="review-panel")
 
+            # Debug panel
+            yield DebugPanel(id="debug-panel")
+
             # Input area
             with Horizontal(id="input-area"):
                 yield Label("Ask Manager: ", markup=False)
@@ -275,11 +339,13 @@ class MonitorApp(App):
         self.manager_panel = self.query_one("#manager-panel", ConversationPanel)
         self.worker_panel = self.query_one("#worker-panel", ConversationPanel)
         self.review_panel = self.query_one("#review-panel", ReviewPanel)
+        self.debug_panel = self.query_one("#debug-panel", DebugPanel)
         self.status_bar = self.query_one("#status-bar", StatusBar)
         self.input_widget = self.query_one("#manager-input", Input)
 
         # Set initial status
         self.status_bar.update_status("Initializing...")
+        self.add_debug("MONITOR", "info", "TUI Monitor initialized")
 
         # Start update timer
         self.set_interval(0.1, self.process_queues)
@@ -325,6 +391,19 @@ class MonitorApp(App):
             except queue.Empty:
                 break
 
+        # Process debug messages
+        while not self.debug_queue.empty():
+            try:
+                debug_msg = self.debug_queue.get_nowait()
+                if self.debug_panel:
+                    self.debug_panel.add_debug_message(
+                        debug_msg['source'],
+                        debug_msg['level'],
+                        debug_msg['message']
+                    )
+            except queue.Empty:
+                break
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission"""
         if event.input.id == "manager-input":
@@ -362,12 +441,22 @@ class MonitorApp(App):
         if self.review_panel:
             self.review_panel.display = self.show_review
 
+    def action_toggle_debug(self) -> None:
+        """Toggle Debug panel visibility"""
+        self.show_debug = not self.show_debug
+        if self.debug_panel:
+            self.debug_panel.display = self.show_debug
+        self.add_debug("MONITOR", "info", f"Debug panel {'shown' if self.show_debug else 'hidden'}")
+
     def action_clear_all(self) -> None:
         """Clear all panels"""
         if self.manager_panel:
             self.manager_panel.clear_messages()
         if self.worker_panel:
             self.worker_panel.clear_messages()
+        if self.debug_panel:
+            self.debug_panel.clear_messages()
+        self.add_debug("MONITOR", "info", "All panels cleared")
 
     # Public API for adding messages
 
@@ -390,6 +479,11 @@ class MonitorApp(App):
     def update_status(self, status: str):
         """Update status bar (thread-safe)"""
         self.status_queue.put(status)
+        self.add_debug("STATUS", "info", f"Status: {status}")
+
+    def add_debug(self, source: str, level: str, message: str):
+        """Add debug message (thread-safe)"""
+        self.debug_queue.put({'source': source, 'level': level, 'message': message})
 
     def set_interaction_callback(self, callback):
         """Set callback function for user interactions"""
@@ -408,26 +502,37 @@ class MonitorApp(App):
 
         def run_orchestrator():
             try:
+                self.add_debug("ORCH-THREAD", "info", "Orchestrator thread started")
                 self.orchestrator_result = orchestrator_func(*args, **kwargs)
+                self.add_debug("ORCH-THREAD", "success", "Orchestrator completed successfully")
                 self.update_status("Workflow complete!")
             except Exception as e:
                 self.orchestrator_error = e
+                self.add_debug("ORCH-THREAD", "error", f"Orchestrator error: {str(e)}")
                 self.update_status(f"Error: {str(e)}")
                 import traceback
-                traceback.print_exc()
+                tb_str = traceback.format_exc()
+                # Send traceback to debug panel
+                for line in tb_str.split('\n')[:20]:  # Limit to 20 lines
+                    if line.strip():
+                        self.add_debug("TRACEBACK", "error", line)
             finally:
                 # Keep TUI running to show results
                 pass
 
         # Start orchestrator in background thread
+        self.add_debug("MONITOR", "info", "Starting orchestrator in background thread")
         orch_thread = threading.Thread(target=run_orchestrator, daemon=True)
         orch_thread.start()
+        self.add_debug("MONITOR", "info", f"Background thread ID: {orch_thread.ident}")
 
         # Run TUI in main thread (blocks until user exits)
         try:
+            self.add_debug("MONITOR", "info", "Starting TUI in main thread")
             self.run()
         finally:
             # Wait a moment for orchestrator thread to finish
+            self.add_debug("MONITOR", "info", "TUI exited, waiting for orchestrator...")
             orch_thread.join(timeout=2)
 
         # Return result or raise error
