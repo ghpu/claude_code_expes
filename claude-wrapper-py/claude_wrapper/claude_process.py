@@ -1,16 +1,12 @@
 """
-ClaudeProcess - Manages a Claude CLI subprocess
-Handles stdin/stdout/stderr for real Claude Code CLI process
+ClaudeProcess - Manages a Claude CLI subprocess using pexpect
+Handles terminal interaction with real Claude Code CLI process
 """
 
-import subprocess
-import threading
-import queue
+import pexpect
 import time
 import os
-import pty
-import select
-import fcntl
+import re
 from typing import Optional, Callable
 from dataclasses import dataclass
 from .terminal_ui import ui
@@ -23,6 +19,30 @@ class ClaudeResponse:
     is_complete: bool
     has_thinking: bool
     thinking_content: str = ""
+
+
+class LogToMonitor:
+    """Helper class to route pexpect output to monitor"""
+
+    def __init__(self, monitor_app, role: str):
+        self.monitor_app = monitor_app
+        self.role = role
+
+    def write(self, data: str):
+        """Called by pexpect when it reads data"""
+        if not data:
+            return
+
+        # Send to monitor
+        if self.monitor_app:
+            if self.role.lower() == 'manager':
+                self.monitor_app.add_manager_message(data)
+            else:
+                self.monitor_app.add_worker_message(data)
+
+    def flush(self):
+        """Required for file-like interface"""
+        pass
 
 
 class ClaudeProcess:
@@ -44,17 +64,12 @@ class ClaudeProcess:
         self.debug = debug
         self.show_streaming = show_streaming
         self.monitor_app = monitor_app
-        self.process: Optional[subprocess.Popen] = None
-        self.master_fd: Optional[int] = None  # PTY master file descriptor
-        self.stdout_queue: queue.Queue = queue.Queue()
-        self.stderr_queue: queue.Queue = queue.Queue()
-        self.stdout_thread: Optional[threading.Thread] = None
-        self.stderr_thread: Optional[threading.Thread] = None
+        self.child: Optional[pexpect.spawn] = None  # pexpect child process
         self.conversation_history: list = []
         self.is_running = False
 
     def start(self) -> None:
-        """Start the Claude CLI process"""
+        """Start the Claude CLI process using pexpect"""
         if self.is_running:
             raise RuntimeError(f"[{self.role}] Process already running")
 
@@ -74,79 +89,55 @@ class ClaudeProcess:
             raise PermissionError(error_msg)
 
         if self.role.lower() == 'manager':
-            ui.manager_log(f"Starting Claude CLI process at {claude_path}")
+            ui.manager_log(f"Starting Claude CLI with pexpect at {claude_path}")
             ui.manager_log(f"Working directory: {self.working_dir}")
         else:
-            ui.worker_log(f"Starting Claude CLI process at {claude_path}")
+            ui.worker_log(f"Starting Claude CLI with pexpect at {claude_path}")
             ui.worker_log(f"Working directory: {self.working_dir}")
 
         # Prepare environment - pass through Claude Code authentication
         env = os.environ.copy()
-        env['NO_COLOR'] = '1'  # Disable colors for easier parsing
-        env['TERM'] = 'xterm-256color'  # PTY needs proper TERM
+        env['TERM'] = 'xterm-256color'  # Terminal type
 
         try:
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Claude binary verified, creating PTY...")
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Working dir: {self.working_dir}")
+                self.monitor_app.add_debug("PEXPECT", "info", f"Spawning Claude CLI with pexpect...")
+                self.monitor_app.add_debug("PEXPECT", "info", f"Working dir: {self.working_dir}")
 
-            # Create a PTY (pseudo-terminal) - required for Claude CLI to respond
-            master_fd, slave_fd = pty.openpty()
-            self.master_fd = master_fd
-
-            # Set master to non-blocking
-            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-            if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"PTY created (master_fd={master_fd}, slave_fd={slave_fd})")
-
-            # Spawn subprocess with PTY
-            self.process = subprocess.Popen(
-                [claude_path],
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
+            # Spawn Claude CLI with pexpect
+            self.child = pexpect.spawn(
+                claude_path,
                 cwd=self.working_dir,
                 env=env,
-                close_fds=False,
+                timeout=120,
+                encoding='utf-8',
+                echo=False  # Don't echo input back
             )
 
-            # Close slave_fd in parent process (child still has it)
-            os.close(slave_fd)
+            # Enable logging if debug
+            if self.debug or self.monitor_app:
+                self.child.logfile_read = LogToMonitor(self.monitor_app, self.role)
 
-            if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Subprocess created with PTY (PID: {self.process.pid})")
-
-            # Start output reading thread (single thread for PTY)
-            self.stdout_thread = threading.Thread(
-                target=self._read_pty,
-                args=(master_fd, self.stdout_queue),
-                daemon=True
-            )
-
-            self.stdout_thread.start()
             self.is_running = True
 
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "success", "PTY read thread started")
+                self.monitor_app.add_debug("PEXPECT", "success", f"Claude CLI spawned (PID: {self.child.pid})")
 
-            # Wait a moment for Claude to initialize
+            # Wait for Claude CLI to be ready - look for common patterns
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Sleeping 1s for initialization...")
-            time.sleep(1)
+                self.monitor_app.add_debug("PEXPECT", "info", "Waiting for Claude CLI to be ready...")
+
+            # Try to detect if Claude is ready by waiting for initial output
+            # Claude CLI might show welcome message, prompt, or just be silent
+            time.sleep(2)
 
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Skipping initial output consumption (Claude CLI produces no output until prompted)")
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", "PTY mode: stdout/stderr are merged")
-
-            # NOTE: Claude CLI is an interactive REPL that doesn't output anything until
-            # it receives input, so we skip the initial output consumption step
+                self.monitor_app.add_debug("PEXPECT", "success", "Claude CLI ready")
 
             if self.role.lower() == 'manager':
-                ui.manager_log(f"Process started successfully (PID: {self.process.pid})", "success")
+                ui.manager_log(f"Process started successfully (PID: {self.child.pid})", "success")
             else:
-                ui.worker_log(f"Process started successfully (PID: {self.process.pid})", "success")
+                ui.worker_log(f"Process started successfully (PID: {self.child.pid})", "success")
 
         except Exception as e:
             error_msg = f"Failed to start Claude process: {e}"
@@ -154,159 +145,13 @@ class ClaudeProcess:
                 ui.manager_log(error_msg, "error")
             else:
                 ui.worker_log(error_msg, "error")
-            raise RuntimeError(f"[{self.role}] {error_msg}")
-
-    def _read_stream(self, stream, output_queue: queue.Queue, stream_name: str) -> None:
-        """Read from stream and put into queue"""
-        try:
-            for line in stream:
-                output_queue.put(line)
-
-                # Show real-time streaming if enabled
-                if self.show_streaming and stream_name == 'stdout':
-                    ui.print_streaming_output(self.role.lower(), line)
-
-                # Send to monitor if available
-                if self.monitor_app and stream_name == 'stdout':
-                    if self.role.lower() == 'manager':
-                        self.monitor_app.add_manager_message(line.rstrip())
-                    else:
-                        self.monitor_app.add_worker_message(line.rstrip())
-
-                if self.debug and stream_name == 'stderr':
-                    if self.role.lower() == 'manager':
-                        ui.manager_log(f"stderr: {line.rstrip()}", "warning")
-                    else:
-                        ui.worker_log(f"stderr: {line.rstrip()}", "warning")
-        except Exception as e:
-            if self.debug:
-                if self.role.lower() == 'manager':
-                    ui.manager_log(f"Stream {stream_name} error: {e}", "error")
-                else:
-                    ui.worker_log(f"Stream {stream_name} error: {e}", "error")
-
-    def _read_pty(self, master_fd: int, output_queue: queue.Queue) -> None:
-        """Read from PTY master and put into queue"""
-        try:
             if self.monitor_app:
-                self.monitor_app.add_debug("PTY_READER", "info", "PTY read thread started")
-
-            while self.is_running:
-                try:
-                    # Read from PTY (non-blocking)
-                    data = os.read(master_fd, 4096)
-                    if not data:
-                        if self.monitor_app:
-                            self.monitor_app.add_debug("PTY_READER", "warning", "PTY returned empty data, exiting")
-                        break
-
-                    # Decode and split into lines
-                    text = data.decode('utf-8', errors='replace')
-
-                    if self.monitor_app:
-                        self.monitor_app.add_debug("PTY_READER", "success", f"PTY received {len(data)} bytes: {text[:50]}...")
-
-                    # Put each character/chunk into queue for processing
-                    output_queue.put(text)
-
-                    # Show real-time streaming if enabled
-                    if self.show_streaming:
-                        ui.print_streaming_output(self.role.lower(), text)
-
-                    # Send to monitor if available
-                    if self.monitor_app:
-                        if self.role.lower() == 'manager':
-                            self.monitor_app.add_manager_message(text.rstrip())
-                        else:
-                            self.monitor_app.add_worker_message(text.rstrip())
-
-                except BlockingIOError:
-                    # No data available, sleep briefly
-                    time.sleep(0.01)
-                except OSError as e:
-                    if self.debug:
-                        if self.role.lower() == 'manager':
-                            ui.manager_log(f"PTY read error: {e}", "error")
-                        else:
-                            ui.worker_log(f"PTY read error: {e}", "error")
-                    break
-
-        except Exception as e:
-            if self.debug:
-                if self.role.lower() == 'manager':
-                    ui.manager_log(f"PTY thread error: {e}", "error")
-                else:
-                    ui.worker_log(f"PTY thread error: {e}", "error")
-
-    def _consume_output(self, timeout: float = 30) -> str:
-        """Consume output from queue until timeout"""
-        output_lines = []
-        start_time = time.time()
-        last_output_time = start_time
-        idle_threshold = 2.0  # Stop if no output for 2 seconds
-        last_status_time = start_time
-
-        if self.monitor_app:
-            self.monitor_app.add_debug("CONSUME", "info", f"Starting output consumption (timeout={timeout}s)")
-            # Check if process is alive
-            if self.process:
-                poll_result = self.process.poll()
-                if poll_result is not None:
-                    self.monitor_app.add_debug("CONSUME", "error", f"Process already exited with code {poll_result}!")
-                else:
-                    self.monitor_app.add_debug("CONSUME", "info", f"Process is alive (PID: {self.process.pid})")
-
-        while True:
-            try:
-                # Non-blocking get with small timeout
-                line = self.stdout_queue.get(timeout=0.1)
-                output_lines.append(line)
-                last_output_time = time.time()
-
-                if self.monitor_app:
-                    self.monitor_app.add_debug("CONSUME", "debug", f"Got line: {line[:50]}...")
-
-                # Already shown via streaming in _read_stream
-                pass
-
-            except queue.Empty:
-                # Check if we should stop
-                elapsed = time.time() - start_time
-                idle_time = time.time() - last_output_time
-
-                # Periodic status update every 1 second
-                if self.monitor_app and (time.time() - last_status_time) > 1.0:
-                    self.monitor_app.add_debug("CONSUME", "debug", f"Still waiting... elapsed={elapsed:.1f}s, lines={len(output_lines)}, idle={idle_time:.1f}s")
-                    last_status_time = time.time()
-
-                    # Check if process died
-                    if self.process:
-                        poll_result = self.process.poll()
-                        if poll_result is not None:
-                            self.monitor_app.add_debug("CONSUME", "error", f"Process died with exit code {poll_result}!")
-
-                if elapsed > timeout:
-                    if self.monitor_app:
-                        self.monitor_app.add_debug("CONSUME", "warning", f"Output timeout reached ({timeout}s), {len(output_lines)} lines received")
-                    if self.debug:
-                        print(f"[{self.role}] Output timeout ({timeout}s)")
-                    break
-
-                if idle_time > idle_threshold and len(output_lines) > 0:
-                    if self.monitor_app:
-                        self.monitor_app.add_debug("CONSUME", "info", f"Idle threshold reached ({idle_threshold}s), {len(output_lines)} lines received")
-                    if self.debug:
-                        print(f"[{self.role}] Idle threshold reached ({idle_threshold}s)")
-                    break
-
-        if self.monitor_app:
-            self.monitor_app.add_debug("CONSUME", "success", f"Output consumption complete: {len(output_lines)} lines")
-
-        return ''.join(output_lines)
+                self.monitor_app.add_debug("PEXPECT", "error", str(e))
+            raise RuntimeError(f"[{self.role}] {error_msg}")
 
     def send_prompt(self, prompt: str, timeout: float = 120) -> ClaudeResponse:
         """
-        Send a prompt to Claude and wait for response
+        Send a prompt to Claude and wait for response using pexpect
 
         Args:
             prompt: The prompt to send
@@ -315,7 +160,7 @@ class ClaudeProcess:
         Returns:
             ClaudeResponse object with the response text
         """
-        if not self.is_running:
+        if not self.is_running or not self.child:
             raise RuntimeError(f"[{self.role}] Process not running")
 
         if self.role.lower() == 'manager':
@@ -330,33 +175,42 @@ class ClaudeProcess:
                 self.monitor_app.add_manager_message(f">>> SENDING PROMPT: {prompt_preview}")
             else:
                 self.monitor_app.add_worker_message(f">>> SENDING PROMPT: {prompt_preview}")
+            self.monitor_app.add_debug("PEXPECT", "info", f"Sending prompt ({len(prompt)} chars)...")
 
-        # Send prompt via PTY
         try:
-            if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Writing prompt to PTY ({len(prompt)} chars)...")
-
-            # Write to PTY master
-            prompt_bytes = (prompt + '\n').encode('utf-8')
-            bytes_written = os.write(self.master_fd, prompt_bytes)
+            # Send prompt to Claude CLI
+            self.child.sendline(prompt)
 
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Prompt written to PTY ({bytes_written} bytes)")
-                self.monitor_app.add_debug("CLAUDE_PROC", "debug", f"First 100 chars: {prompt[:100]}")
+                self.monitor_app.add_debug("PEXPECT", "success", "Prompt sent via pexpect")
+
+            # Wait for response - expect any output or timeout
+            # Claude may respond with various patterns, so we use a generous regex
+            self.child.expect([pexpect.TIMEOUT, pexpect.EOF, '.+'], timeout=timeout)
+
+            # Collect everything that was output
+            response_text = self.child.before + self.child.after if self.child.after else self.child.before
+
+            if not response_text:
+                response_text = ""
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("PEXPECT", "success", f"Response received ({len(response_text)} chars)")
+
+        except pexpect.TIMEOUT:
+            if self.monitor_app:
+                self.monitor_app.add_debug("PEXPECT", "warning", f"Timeout after {timeout}s waiting for response")
+            response_text = self.child.before if self.child.before else ""
+
+        except pexpect.EOF:
+            if self.monitor_app:
+                self.monitor_app.add_debug("PEXPECT", "error", "Claude CLI process ended unexpectedly (EOF)")
+            raise RuntimeError(f"[{self.role}] Claude CLI process ended")
 
         except Exception as e:
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "error", f"Failed to write prompt: {e}")
-            raise RuntimeError(f"[{self.role}] Failed to send prompt: {e}")
-
-        # Wait for and collect response
-        if self.monitor_app:
-            self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Waiting for response (timeout={timeout}s)...")
-
-        response_text = self._consume_output(timeout=timeout)
-
-        if self.monitor_app:
-            self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Response received ({len(response_text)} chars)")
+                self.monitor_app.add_debug("PEXPECT", "error", f"Error: {e}")
+            raise RuntimeError(f"[{self.role}] Failed to communicate with Claude: {e}")
 
         # Add to conversation history
         self.conversation_history.append({
@@ -415,26 +269,18 @@ class ClaudeProcess:
         self.is_running = False
 
         try:
-            if self.process:
-                self.process.terminate()
-                self.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            if self.debug:
-                print(f"[{self.role}] Force killing process")
-            self.process.kill()
+            if self.child and self.child.isalive():
+                self.child.terminate(force=False)
+                time.sleep(1)
+
+                if self.child.isalive():
+                    if self.debug:
+                        print(f"[{self.role}] Force killing process")
+                    self.child.terminate(force=True)
+
         except Exception as e:
             if self.debug:
                 print(f"[{self.role}] Error stopping process: {e}")
-
-        # Close PTY master if it exists
-        if self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-                if self.debug:
-                    print(f"[{self.role}] PTY master closed")
-            except Exception as e:
-                if self.debug:
-                    print(f"[{self.role}] Error closing PTY: {e}")
 
         if self.debug:
             print(f"[{self.role}] Process stopped")
