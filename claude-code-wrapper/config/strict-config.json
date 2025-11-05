@@ -1,0 +1,44 @@
+{
+  "manager": {
+    "strictness": "extreme",
+    "allowMocks": false,
+    "requireTests": true,
+    "requireDocumentation": true,
+    "maxIterations": 3,
+    "qualityGates": [
+      "no-mocks",
+      "no-todos",
+      "no-incomplete",
+      "no-console-log",
+      "tests-pass",
+      "documented",
+      "no-long-functions",
+      "no-deep-nesting"
+    ],
+    "reviewTimeout": 60000,
+    "autoApproveSimpleChanges": false,
+    "minTestCoverage": 95
+  },
+  "worker": {
+    "enableHooks": true,
+    "hookTimeout": 60000,
+    "maxRetries": 2,
+    "requestApprovalFor": [
+      "Write",
+      "Edit",
+      "Bash",
+      "NotebookEdit"
+    ],
+    "autoSubmitAfterTools": [],
+    "workingDirectory": "."
+  },
+  "communication": {
+    "channelType": "file",
+    "messageQueueSize": 200,
+    "heartbeatInterval": 3000,
+    "timeout": 60000
+  },
+  "logging": {
+    "level": "debug"
+  }
+}

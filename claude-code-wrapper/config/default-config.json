@@ -1,0 +1,43 @@
+{
+  "manager": {
+    "strictness": "high",
+    "allowMocks": false,
+    "requireTests": true,
+    "requireDocumentation": true,
+    "maxIterations": 5,
+    "qualityGates": [
+      "no-mocks",
+      "no-todos",
+      "no-incomplete",
+      "tests-pass",
+      "documented"
+    ],
+    "reviewTimeout": 30000,
+    "autoApproveSimpleChanges": false,
+    "minTestCoverage": 80
+  },
+  "worker": {
+    "enableHooks": true,
+    "hookTimeout": 30000,
+    "maxRetries": 3,
+    "requestApprovalFor": [
+      "Write",
+      "Edit",
+      "Bash"
+    ],
+    "autoSubmitAfterTools": [
+      "Write",
+      "Edit"
+    ],
+    "workingDirectory": "."
+  },
+  "communication": {
+    "channelType": "file",
+    "messageQueueSize": 100,
+    "heartbeatInterval": 5000,
+    "timeout": 30000
+  },
+  "logging": {
+    "level": "info"
+  }
+}
