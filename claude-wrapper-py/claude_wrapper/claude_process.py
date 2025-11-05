@@ -304,12 +304,15 @@ class ClaudeProcess:
 
             if self.monitor_app:
                 self.monitor_app.add_debug("PEXPECT", "success", "Prompt typed and submitted with Enter key")
-                self.monitor_app.add_debug("PEXPECT", "info", "Checking if Claude CLI produced any echo...")
+                self.monitor_app.add_debug("PEXPECT", "info", "Waiting for Claude CLI response...")
 
             # Wait for Claude to finish processing - just use timeout
             # Claude CLI will output continuously, so we collect for a reasonable time
             # then check if output has stopped (idle detection)
             time.sleep(2)  # Give Claude time to start responding
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("PEXPECT", "info", "Starting to collect response output...")
 
             # Try to read all available output with a reasonable timeout
             # We'll keep reading until output stops for 2 seconds
@@ -328,13 +331,27 @@ class ClaudeProcess:
                         response_parts.append(self.child.before)
                         last_output_time = time.time()
 
+                        if self.monitor_app:
+                            self.monitor_app.add_debug("PEXPECT", "debug", f"Received data chunk: {len(self.child.before)} chars")
+
                 except pexpect.TIMEOUT:
                     # Check if we've been idle too long
                     idle_time = time.time() - last_output_time
-                    if idle_time > idle_timeout and response_parts:
-                        if self.monitor_app:
-                            self.monitor_app.add_debug("PEXPECT", "info", f"Idle for {idle_time:.1f}s, assuming response complete")
-                        break
+
+                    # Report idle status
+                    if self.monitor_app and idle_time > 1.0:
+                        self.monitor_app.add_debug("PEXPECT", "debug", f"Idle for {idle_time:.1f}s, response_parts={len(response_parts)}")
+
+                    if idle_time > idle_timeout:
+                        if response_parts:
+                            if self.monitor_app:
+                                self.monitor_app.add_debug("PEXPECT", "info", f"Idle for {idle_time:.1f}s, assuming response complete")
+                            break
+                        else:
+                            # No output at all - keep waiting up to full timeout
+                            if self.monitor_app and (time.time() - start_time) % 10 < 0.5:  # Log every 10s
+                                elapsed = time.time() - start_time
+                                self.monitor_app.add_debug("PEXPECT", "warning", f"No output after {elapsed:.0f}s - Claude CLI may not be responding")
 
             response_text = ''.join(response_parts)
 
@@ -342,10 +359,12 @@ class ClaudeProcess:
             response_text = strip_ansi(response_text)
 
             if self.monitor_app:
-                self.monitor_app.add_debug("PEXPECT", "success", f"Response received ({len(response_text)} chars)")
+                self.monitor_app.add_debug("PEXPECT", "success", f"Response collection complete: {len(response_text)} chars")
                 if response_text:
                     preview = response_text[:200].replace('\n', '\\n')
                     self.monitor_app.add_debug("PEXPECT", "debug", f"Response preview: {preview}...")
+                else:
+                    self.monitor_app.add_debug("PEXPECT", "error", "Response is EMPTY - Claude CLI did not produce any output!")
 
         except pexpect.EOF:
             if self.monitor_app:
