@@ -5,13 +5,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "claude-wrapper": "dist/cli.js"
+    "claude-wrapper": "dist/cli-real.js"
   },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
-    "dev": "ts-node src/cli.ts",
-    "start": "node dist/cli.js",
+    "dev": "ts-node src/cli-real.ts",
+    "dev:mock": "ts-node src/cli.ts",
+    "start": "node dist/cli-real.js",
+    "start:mock": "node dist/cli.js",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist"
@@ -27,6 +29,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@types/glob": "^8.1.0",
+    "glob": "^11.0.3",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
