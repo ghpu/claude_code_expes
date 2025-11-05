@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "dev": "ts-node src/cli.ts",
     "start": "node dist/cli.js",
     "test": "jest",
