@@ -121,8 +121,8 @@ class ClaudeProcess:
 
             # Wait a moment for Claude to initialize
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Sleeping 2s for initialization...")
-            time.sleep(2)
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Sleeping 1s for initialization...")
+            time.sleep(1)
 
             # Check for any stderr messages
             if self.monitor_app:
@@ -135,15 +135,14 @@ class ClaudeProcess:
                 if stderr_lines:
                     for line in stderr_lines[:5]:  # Show first 5 stderr lines
                         self.monitor_app.add_debug("CLAUDE_STDERR", "warning", line.strip())
+                else:
+                    self.monitor_app.add_debug("CLAUDE_PROC", "info", "No stderr output")
 
             if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "info", "About to consume initial output (3s timeout)...")
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Skipping initial output consumption (Claude CLI produces no output until prompted)")
 
-            # Consume initial output
-            self._consume_output(timeout=3)
-
-            if self.monitor_app:
-                self.monitor_app.add_debug("CLAUDE_PROC", "success", "Initial output consumed")
+            # NOTE: Claude CLI is an interactive REPL that doesn't output anything until
+            # it receives input, so we skip the initial output consumption step
 
             if self.role.lower() == 'manager':
                 ui.manager_log(f"Process started successfully (PID: {self.process.pid})", "success")
