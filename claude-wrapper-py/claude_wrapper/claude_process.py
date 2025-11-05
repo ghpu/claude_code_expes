@@ -69,6 +69,9 @@ class ClaudeProcess:
         env['TERM'] = 'dumb'   # Disable interactive features
 
         try:
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Creating subprocess at {claude_path}...")
+
             self.process = subprocess.Popen(
                 [claude_path],
                 stdin=subprocess.PIPE,
@@ -79,6 +82,9 @@ class ClaudeProcess:
                 text=True,
                 bufsize=1,  # Line buffered
             )
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Subprocess created (PID: {self.process.pid})")
 
             # Start output reading threads
             self.stdout_thread = threading.Thread(
@@ -96,11 +102,22 @@ class ClaudeProcess:
             self.stderr_thread.start()
             self.is_running = True
 
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "success", "Output threads started")
+
             # Wait a moment for Claude to initialize
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", "Sleeping 2s for initialization...")
             time.sleep(2)
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", "About to consume initial output (3s timeout)...")
 
             # Consume initial output
             self._consume_output(timeout=3)
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "success", "Initial output consumed")
 
             if self.role.lower() == 'manager':
                 ui.manager_log(f"Process started successfully (PID: {self.process.pid})", "success")
@@ -151,6 +168,9 @@ class ClaudeProcess:
         last_output_time = start_time
         idle_threshold = 2.0  # Stop if no output for 2 seconds
 
+        if self.monitor_app:
+            self.monitor_app.add_debug("CONSUME", "info", f"Starting output consumption (timeout={timeout}s)")
+
         while True:
             try:
                 # Non-blocking get with small timeout
@@ -167,14 +187,21 @@ class ClaudeProcess:
                 idle_time = time.time() - last_output_time
 
                 if elapsed > timeout:
+                    if self.monitor_app:
+                        self.monitor_app.add_debug("CONSUME", "warning", f"Output timeout reached ({timeout}s), {len(output_lines)} lines received")
                     if self.debug:
                         print(f"[{self.role}] Output timeout ({timeout}s)")
                     break
 
                 if idle_time > idle_threshold and len(output_lines) > 0:
+                    if self.monitor_app:
+                        self.monitor_app.add_debug("CONSUME", "info", f"Idle threshold reached ({idle_threshold}s), {len(output_lines)} lines received")
                     if self.debug:
                         print(f"[{self.role}] Idle threshold reached ({idle_threshold}s)")
                     break
+
+        if self.monitor_app:
+            self.monitor_app.add_debug("CONSUME", "success", f"Output consumption complete: {len(output_lines)} lines")
 
         return ''.join(output_lines)
 
@@ -199,13 +226,28 @@ class ClaudeProcess:
 
         # Send prompt via stdin
         try:
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Writing prompt to stdin ({len(prompt)} chars)...")
+
             self.process.stdin.write(prompt + '\n\n')
             self.process.stdin.flush()
+
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "success", "Prompt written and flushed")
+
         except Exception as e:
+            if self.monitor_app:
+                self.monitor_app.add_debug("CLAUDE_PROC", "error", f"Failed to write prompt: {e}")
             raise RuntimeError(f"[{self.role}] Failed to send prompt: {e}")
 
         # Wait for and collect response
+        if self.monitor_app:
+            self.monitor_app.add_debug("CLAUDE_PROC", "info", f"Waiting for response (timeout={timeout}s)...")
+
         response_text = self._consume_output(timeout=timeout)
+
+        if self.monitor_app:
+            self.monitor_app.add_debug("CLAUDE_PROC", "success", f"Response received ({len(response_text)} chars)")
 
         # Add to conversation history
         self.conversation_history.append({

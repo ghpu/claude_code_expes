@@ -88,10 +88,20 @@ Working directory: {self.working_dir}
         """Start the Manager's Claude process"""
         ui.manager_log("Starting Manager Claude instance...")
 
+        if self.monitor_app:
+            self.monitor_app.add_debug("MANAGER", "info", "About to call self.claude.start()...")
+
         self.claude.start()
+
+        if self.monitor_app:
+            self.monitor_app.add_debug("MANAGER", "success", "self.claude.start() completed")
+            self.monitor_app.add_debug("MANAGER", "info", "About to send system prompt...")
 
         # Send system prompt
         response = self.claude.send_prompt(self.system_prompt)
+
+        if self.monitor_app:
+            self.monitor_app.add_debug("MANAGER", "success", "System prompt sent successfully")
 
         ui.manager_log("Initialized and ready", "success")
         if self.debug:
